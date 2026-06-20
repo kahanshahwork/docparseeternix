@@ -28,9 +28,10 @@ def get_db() -> sqlite3.Connection:
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    name        TEXT NOT NULL,
-    created_at  TEXT DEFAULT (datetime('now'))
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT NOT NULL,
+    business_type TEXT NOT NULL DEFAULT 'RETAIL_TRADING',  -- code from core/business_types.py
+    created_at    TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS quarters (
@@ -110,6 +111,23 @@ def init_db():
     conn = get_db()
     conn.executescript(SCHEMA)
     conn.commit()
+    _migrate_add_business_type_column(conn)
+
+
+def _migrate_add_business_type_column(conn: sqlite3.Connection):
+    """
+    Safe, idempotent migration for existing databases created before
+    business_type was added to the clients table. CREATE TABLE IF NOT
+    EXISTS in SCHEMA only helps brand-new databases -- this patches
+    already-existing ones. Safe to call on every startup.
+    """
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(clients)").fetchall()]
+    if "business_type" not in cols:
+        conn.execute(
+            "ALTER TABLE clients ADD COLUMN business_type TEXT NOT NULL DEFAULT 'RETAIL_TRADING'"
+        )
+        conn.commit()
+        print("[db] Migrated: added business_type column to clients table.")
 
 
 def log_audit(entity_type: str, entity_id: int, action: str, detail: str = "", actor: str = "user"):
