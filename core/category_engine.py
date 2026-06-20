@@ -13,7 +13,7 @@ Stage 1 (deterministic, free, instant):
         lower-confidence than vendor_memory, since it's a generic guess.
 
 Stage 2 (AI fallback, only runs if Stage 1 fails to resolve confidently):
-    Calls OpenRouter's free-tier meta-llama/llama-3.3-70b-instruct endpoint.
+    Calls Groq's free-tier llama-3.3-70b-versatile endpoint.
     The AI NEVER auto-applies — it always returns a suggestion + confidence,
     which the workflow layer surfaces for human approval. This matches the
     project's standing constraint: "AI suggestions are never auto-applied."
@@ -41,12 +41,9 @@ from core.category_master import list_categories, get_category
 # Config
 # ---------------------------------------------------------------------------
 
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
-
-OR_SITE_URL = os.environ.get("OR_SITE_URL", "http://localhost:5000")
-OR_APP_NAME = os.environ.get("OR_APP_NAME", "DocParse BAS Workflow")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 AI_TIMEOUT_SECONDS = 30
 
@@ -177,33 +174,31 @@ def _build_ai_prompt(
     ]
 
 
-def _call_openrouter(messages: list[dict]) -> Optional[str]:
-    if not OPENROUTER_API_KEY:
-        raise RuntimeError("OPENROUTER_API_KEY is not set. Add it to your .env file.")
+def _call_groq(messages: list[dict]) -> Optional[str]:
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is not set. Add it to your .env file.")
 
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": OR_SITE_URL,
-        "X-Title": OR_APP_NAME,
     }
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": GROQ_MODEL,
         "messages": messages,
         "temperature": 0.1,
         "max_tokens": 200,
     }
 
     try:
-        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=AI_TIMEOUT_SECONDS)
+        resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=AI_TIMEOUT_SECONDS)
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"]
     except requests.exceptions.RequestException as e:
-        print(f"[category_engine] OpenRouter request failed: {e}")
+        print(f"[category_engine] Groq request failed: {e}")
         return None
     except (KeyError, IndexError) as e:
-        print(f"[category_engine] Unexpected OpenRouter response shape: {e}")
+        print(f"[category_engine] Unexpected Groq response shape: {e}")
         return None
 
 
@@ -234,7 +229,7 @@ def _try_ai(
     messages = _build_ai_prompt(
         description, amount, direction, business_type_label, categories, historical_examples,
     )
-    raw = _call_openrouter(messages)
+    raw = _call_groq(messages)
     if raw is None:
         return None
 

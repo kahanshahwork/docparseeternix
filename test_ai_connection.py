@@ -22,7 +22,7 @@ load_dotenv()
 
 from core.db import init_db, get_db
 from core.category_master import seed_categories
-from core.category_engine import categorize_transaction, OPENROUTER_API_KEY
+from core.category_engine import categorize_transaction, GROQ_API_KEY
 
 
 def main():
@@ -31,13 +31,13 @@ def main():
     print("=" * 60)
 
     # --- Step 1: API key present? ---
-    if not OPENROUTER_API_KEY:
-        print("\n❌ FAIL: OPENROUTER_API_KEY is not set.")
+    if not GROQ_API_KEY:
+        print("\n❌ FAIL: GROQ_API_KEY is not set.")
         print("   Check that .env exists in the project root and contains:")
-        print("   OPENROUTER_API_KEY=sk-or-v1-xxxxxxxx...")
+        print("   GROQ_API_KEY=gsk_xxxxxxxx...")
         sys.exit(1)
-    masked = OPENROUTER_API_KEY[:10] + "..." + OPENROUTER_API_KEY[-4:]
-    print(f"\n✅ Step 1: OPENROUTER_API_KEY loaded ({masked})")
+    masked = GROQ_API_KEY[:10] + "..." + GROQ_API_KEY[-4:]
+    print(f"\n✅ Step 1: GROQ_API_KEY loaded ({masked})")
 
     # --- Step 2: DB + categories ready? ---
     init_db()
@@ -65,7 +65,7 @@ def main():
     test_description = "ZARA CLOTHING STORE MELBOURNE 4471"
     print(f"\n→ Sending test transaction to AI: \"{test_description}\"")
     print("  (this transaction won't match vendor memory or semantic buckets,")
-    print("   so it MUST go through OpenRouter to resolve)\n")
+    print("   so it MUST go through Groq to resolve)\n")
 
     try:
         result = categorize_transaction(
@@ -89,13 +89,13 @@ def main():
     print("-" * 60)
 
     if result.source == "ai" and result.category_name:
-        print("\n✅ SUCCESS: Llama 3.3 70B (via OpenRouter) is working correctly.")
+        print("\n✅ SUCCESS: Llama 3.3 70B (via Groq) is working correctly.")
         print(f"   It correctly resolved an unknown transaction to: {result.category_name!r}")
     elif result.source == "unresolved":
         print("\n❌ FAIL: AI did not resolve the transaction.")
         print(f"   Reason: {result.gst_note}")
         print("   Check the console output above this for an")
-        print("   '[category_engine] OpenRouter request failed: ...' line --")
+        print("   '[category_engine] Groq request failed: ...' line --")
         print("   that will show the actual error (auth, rate limit, etc).")
         sys.exit(1)
     else:
