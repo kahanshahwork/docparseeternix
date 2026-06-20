@@ -92,6 +92,23 @@ def _unresolved(note: str) -> CategorySuggestion:
     )
 
 
+def _direction_mismatch(direction: str, pnl_group: str) -> bool:
+    """
+    Sanity check: a debit (money OUT) should never resolve to an Income
+    category, and a credit (money IN) should never resolve to an Expense
+    category. 'Excluded' (transfers, drawings, loan principal, etc.) is
+    valid for either direction. This catches AI mistakes even when the
+    prompt instructions are followed imperfectly -- defense in depth,
+    matching the project's deterministic-check-first review philosophy.
+    """
+    direction = (direction or "").lower()
+    if direction == "debit" and pnl_group == "Income":
+        return True
+    if direction == "credit" and pnl_group == "Expense":
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Stage 1: Deterministic
 # ---------------------------------------------------------------------------
@@ -149,7 +166,17 @@ def _build_ai_prompt(
         "accounting firm. You must choose exactly ONE category from the "
         "provided Category Master list for the given bank transaction. "
         "Never invent a category that is not in the list -- copy the "
-        "category name EXACTLY as given, including punctuation. "
+        "category name EXACTLY as given, including punctuation.\n\n"
+        "CRITICAL RULE: pay close attention to the transaction's direction. "
+        "A 'debit' means money LEFT the account (an expense/purchase) -- it "
+        "must map to a category with P&L Group 'Expense' or 'Excluded', "
+        "NEVER 'Income'. A 'credit' means money ENTERED the account "
+        "(income/revenue received) -- it must map to a category with P&L "
+        "Group 'Income' or 'Excluded', NEVER 'Expense'. Do not be misled by "
+        "the merchant's business type (e.g. a transaction at a clothing "
+        "store is an EXPENSE if it's a debit, even though the store itself "
+        "sells clothing -- you are categorizing what the bank account "
+        "owner did, not what the merchant does).\n\n"
         "Respond with ONLY a JSON object, no preamble, no markdown fences, "
         "in this exact shape:\n"
         '{"category": "<exact category name from the list>", '
@@ -302,6 +329,19 @@ def categorize_transaction(
         default_gst_rate=cat_row["gst_rate"],
     )
 
+    gst_note = gst["note"]
+
+    # --- Direction sanity guardrail (defense in depth, runs regardless of source) ---
+    if _direction_mismatch(direction, cat_row["pnl_group"]):
+        flag = (
+            f"⚠ FLAGGED FOR REVIEW: a '{direction}' transaction was resolved to "
+            f"'{cat_row['name']}' (P&L Group: {cat_row['pnl_group']}), which "
+            f"conflicts with the transaction direction -- this combination is "
+            f"very unusual and should be manually verified before approving."
+        )
+        gst_note = f"{flag} {gst_note}" if gst_note else flag
+        confidence = min(confidence, 0.30)  # force into manual-review range regardless of original score
+
     return CategorySuggestion(
         category_id=category_id,
         category_name=cat_row["name"],
@@ -310,6 +350,6 @@ def categorize_transaction(
         gst_applicable=gst["gst_applicable"],
         gst_rate=gst["gst_rate"],
         input_taxed=gst["input_taxed"],
-        gst_note=gst["note"],
+        gst_note=gst_note,
         raw_ai_response=raw_ai if source == "ai" else None,
     )
