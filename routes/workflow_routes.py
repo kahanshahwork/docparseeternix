@@ -29,6 +29,23 @@ def _row_to_txn(row) -> dict:
     return dict(row)
 
 
+def get_client_id_for_statement(conn, statement_id: int):
+    """
+    Resolves a statement's owning client_id via statements.quarter_id ->
+    quarters.client_id. Returns None if the statement has no quarter_id set
+    (e.g. an old statement created before the client/quarter selector was
+    added to the Upload & Parse page) -- callers should treat None as "no
+    client context available" rather than guessing.
+    """
+    row = conn.execute(
+        """SELECT q.client_id FROM statements s
+           JOIN quarters q ON q.id = s.quarter_id
+           WHERE s.id = ?""",
+        (statement_id,),
+    ).fetchone()
+    return row["client_id"] if row else None
+
+
 def _hydrate_category_fields(conn, txn: dict) -> dict:
     """Attach category_name/pnl_group/bas_label/gst_rate for engine consumption."""
     if txn.get("category_id"):
@@ -178,17 +195,20 @@ def get_groups(sid):
 
 @workflow_bp.route("/statements/<int:sid>/categorize", methods=["POST"])
 def categorize(sid):
-    """body: {transaction_ids: [..], category_id: N}  -- works for single or bulk/group assignment."""
+    """body: {transaction_ids: [..], category_id: N}  -- works for single or bulk/group assignment.
+    client_id is resolved server-side from the statement's quarter -> client chain,
+    NOT trusted from the request body, so vendor memory is always attributed to the
+    correct client even if the frontend forgets to pass one."""
     b = request.json or {}
     tids = b.get("transaction_ids", [])
     category_id = b["category_id"]
-    client_id = b.get("client_id")  # optional, for vendor memory
 
     cat = category_master.get_category(category_id)
     if not cat:
         return jsonify({"error": "Unknown category"}), 400
 
     conn = get_db()
+    client_id = get_client_id_for_statement(conn, sid)
     for tid in tids:
         row = conn.execute("SELECT * FROM transactions WHERE id = ?", (tid,)).fetchone()
         if not row:
@@ -202,14 +222,16 @@ def categorize(sid):
             vendor_memory.remember(client_id, row["description"], category_id)
     conn.commit()
     log_audit("statement", sid, "categorize", f"{len(tids)} txns -> {cat['name']}")
-    return jsonify({"updated": len(tids)})
+    return jsonify({"updated": len(tids), "client_id": client_id})
 
 
 @workflow_bp.route("/statements/<int:sid>/suggest", methods=["GET"])
 def suggest(sid):
-    """Vendor-memory suggestions (Part D path 1) for every uncategorized row in this statement."""
-    client_id = request.args.get("client_id", type=int)
+    """Vendor-memory suggestions (Part D path 1) for every uncategorized row in
+    this statement. client_id resolved server-side -- no longer requires the
+    frontend to pass ?client_id=, which was fragile and easy to omit."""
     conn = get_db()
+    client_id = get_client_id_for_statement(conn, sid)
     rows = conn.execute(
         "SELECT * FROM transactions WHERE statement_id = ? AND category_id IS NULL", (sid,)
     ).fetchall()
@@ -279,15 +301,61 @@ def get_quarter_pnl(qid):
 
 # ── Quarters / clients (minimal, for Module 2 structure) ───────────────────
 
+@workflow_bp.route("/business-types", methods=["GET"])
+def business_types_list():
+    """Powers the business_type dropdown on the client edit screen."""
+    from core.business_types import list_business_types
+    return jsonify(list_business_types())
+
+
 @workflow_bp.route("/clients", methods=["GET", "POST"])
 def clients():
+    from core.business_types import is_valid_business_type
     conn = get_db()
     if request.method == "POST":
         b = request.json or {}
-        cur = conn.execute("INSERT INTO clients (name) VALUES (?)", (b["name"],))
+        business_type = b.get("business_type", "RETAIL_TRADING")
+        if not is_valid_business_type(business_type):
+            return jsonify({"error": f"Invalid business_type: {business_type!r}"}), 400
+        cur = conn.execute(
+            "INSERT INTO clients (name, business_type) VALUES (?, ?)",
+            (b["name"], business_type),
+        )
         conn.commit()
+        log_audit("client", cur.lastrowid, "create", detail=f"business_type={business_type}")
         return jsonify({"id": cur.lastrowid})
-    return jsonify([dict(r) for r in conn.execute("SELECT * FROM clients").fetchall()])
+    return jsonify([dict(r) for r in conn.execute("SELECT * FROM clients ORDER BY name").fetchall()])
+
+
+@workflow_bp.route("/clients/<int:client_id>", methods=["PATCH"])
+def update_client(client_id):
+    """Used by the client edit screen to change name and/or business_type."""
+    from core.business_types import is_valid_business_type
+    conn = get_db()
+    b = request.json or {}
+
+    sets, vals = [], []
+    if "name" in b:
+        sets.append("name = ?")
+        vals.append(b["name"])
+    if "business_type" in b:
+        if not is_valid_business_type(b["business_type"]):
+            return jsonify({"error": f"Invalid business_type: {b['business_type']!r}"}), 400
+        sets.append("business_type = ?")
+        vals.append(b["business_type"])
+
+    if not sets:
+        return jsonify({"error": "No valid fields to update"}), 400
+
+    vals.append(client_id)
+    conn.execute(f"UPDATE clients SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+    log_audit("client", client_id, "edit", detail=str(b))
+
+    row = conn.execute("SELECT * FROM clients WHERE id = ?", (client_id,)).fetchone()
+    if row is None:
+        return jsonify({"error": "Client not found"}), 404
+    return jsonify(dict(row))
 
 
 @workflow_bp.route("/quarters", methods=["GET", "POST"])

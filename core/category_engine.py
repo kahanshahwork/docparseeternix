@@ -4,11 +4,13 @@ core/category_engine.py
 Two-stage transaction categorization engine.
 
 Stage 1 (deterministic, free, instant):
-    1a. Vendor memory exact match (core/vendor_memory.py) — per-client
-        learned mapping, e.g. "UBER EATS" -> "Meals & Entertainment"
-    1b. Semantic bucket keyword match (core/vendor_memory.py SEMANTIC_BUCKETS)
-        — generic keyword groupings as a category SUGGESTION input, not the
-        final grouping key (per the architecture decision already locked in)
+    1a. Vendor memory exact match (core/vendor_memory.py suggest_category) —
+        per-client learned mapping, returns a category_id directly.
+    1b. Semantic bucket keyword match (core/vendor_memory.py semantic_bucket)
+        — this returns a vendor GROUPING label (e.g. "Food Delivery"), not a
+        category. BUCKET_TO_CATEGORY_HINT below maps that label to a likely
+        category NAME, which we then resolve to an id. This is intentionally
+        lower-confidence than vendor_memory, since it's a generic guess.
 
 Stage 2 (AI fallback, only runs if Stage 1 fails to resolve confidently):
     Calls OpenRouter's free-tier meta-llama/llama-3.3-70b-instruct endpoint.
@@ -25,13 +27,14 @@ Swapping providers/models later = editing this one file.
 
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import requests
 
-from core.business_types import get_gst_treatment, is_valid_business_type
+from core.business_types import get_gst_treatment, is_valid_business_type, BUSINESS_TYPES
 from core import vendor_memory
+from core.category_master import list_categories, get_category
 
 
 # ---------------------------------------------------------------------------
@@ -42,17 +45,34 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 
-# OpenRouter recommends these headers for attribution / free-tier routing.
-# Update OR_SITE_URL / OR_APP_NAME to your real values once deployed.
 OR_SITE_URL = os.environ.get("OR_SITE_URL", "https://varcrm.vercel.app")
 OR_APP_NAME = os.environ.get("OR_APP_NAME", "Vardhman BAS Workflow")
 
 AI_TIMEOUT_SECONDS = 30
 
+# Maps a vendor_memory.py semantic_bucket() label -> the category NAME (as it
+# appears in core/category_master.py DEFAULT_CATEGORIES) it most commonly
+# implies. This is a lower-confidence Stage 1b hint only -- it never
+# overrides a real vendor_memory hit. Extend freely whenever a new bucket is
+# added in vendor_memory.py SEMANTIC_BUCKETS; nothing else needs to change.
+BUCKET_TO_CATEGORY_HINT = {
+    "Food Delivery": "Meals & Entertainment",
+    "Ride Share / Taxi": "Travel & Vehicle",
+    "Bank Transfers": None,                        # too generic, needs AI/manual judgement
+    "Interest": "Interest Income",
+    "Subscriptions": "Subscriptions & Software",
+    "Merchant Settlement": "Sales / Trading Income",
+    "BPAY": None,
+    "Direct Debit": None,
+    "Salary / Payroll": "Salary & Wages",
+    "Bank Fees": "Bank Fees & Charges",
+}
+
 
 @dataclass
 class CategorySuggestion:
-    category: str
+    category_id: Optional[int]
+    category_name: str
     confidence: float          # 0.0 - 1.0
     source: str                # "vendor_memory" | "semantic_bucket" | "ai" | "unresolved"
     gst_applicable: bool
@@ -62,30 +82,39 @@ class CategorySuggestion:
     raw_ai_response: Optional[str] = None
 
 
+def _unresolved(note: str) -> CategorySuggestion:
+    return CategorySuggestion(
+        category_id=None,
+        category_name="",
+        confidence=0.0,
+        source="unresolved",
+        gst_applicable=False,
+        gst_rate=0.0,
+        input_taxed=False,
+        gst_note=note,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Stage 1: Deterministic
 # ---------------------------------------------------------------------------
 
-def _try_deterministic(
-    client_id: str,
-    description: str,
-    category_master: dict,
-) -> Optional[tuple[str, float, str]]:
-    """
-    Returns (category_name, confidence, source) or None if unresolved.
-    category_master: dict of {category_name: {...}} from core/category_master.py
-    """
-    normalized = vendor_memory.normalize_description(description)
+def _try_deterministic(client_id: int, description: str) -> Optional[tuple[int, float, str]]:
+    """Returns (category_id, confidence, source) or None if unresolved."""
 
-    # 1a. Exact vendor memory match for this specific client
-    remembered = vendor_memory.lookup_vendor_memory(client_id, normalized)
-    if remembered and remembered in category_master:
-        return remembered, 0.95, "vendor_memory"
+    # 1a. Vendor memory exact match -- already returns category_id directly
+    category_id = vendor_memory.suggest_category(client_id, description)
+    if category_id:
+        return category_id, 0.95, "vendor_memory"
 
-    # 1b. Semantic bucket keyword match -> category suggestion
-    bucket_category = vendor_memory.suggest_category_from_bucket(normalized)
-    if bucket_category and bucket_category in category_master:
-        return bucket_category, 0.70, "semantic_bucket"
+    # 1b. Semantic bucket -> category name hint -> resolve to id
+    bucket = vendor_memory.semantic_bucket(description)
+    if bucket:
+        hint_name = BUCKET_TO_CATEGORY_HINT.get(bucket)
+        if hint_name:
+            for cat in list_categories():
+                if cat["name"] == hint_name:
+                    return cat["id"], 0.65, "semantic_bucket"
 
     return None
 
@@ -97,28 +126,21 @@ def _try_deterministic(
 def _build_ai_prompt(
     description: str,
     amount: float,
-    direction: str,                       # "debit" or "credit"
+    direction: str,
     business_type_label: str,
-    category_master: dict,
+    categories: list[dict],
     historical_examples: Optional[list[dict]] = None,
 ) -> list[dict]:
-    """
-    Builds the OpenRouter chat messages. Forces strict JSON output and
-    constrains the model to ONLY the categories that exist in the Category
-    Master, so it can never invent a new category.
-    """
     category_list_str = "\n".join(
-        f"- {name} (P&L Group: {meta.get('pnl_group', 'Unknown')})"
-        for name, meta in category_master.items()
+        f'- "{c["name"]}" (P&L Group: {c["pnl_group"]})' for c in categories
     )
 
     examples_block = ""
     if historical_examples:
-        lines = []
-        for ex in historical_examples[:8]:  # cap few-shot count
-            lines.append(
-                f'  description: "{ex["description"]}" -> category: "{ex["category"]}"'
-            )
+        lines = [
+            f'  description: "{ex["description"]}" -> category: "{ex["category_name"]}"'
+            for ex in historical_examples[:8]
+        ]
         examples_block = (
             "\n\nThis client's own previously approved categorizations "
             "(use these as the strongest signal for similar transactions):\n"
@@ -129,7 +151,8 @@ def _build_ai_prompt(
         "You are a bookkeeping categorization assistant for an Australian "
         "accounting firm. You must choose exactly ONE category from the "
         "provided Category Master list for the given bank transaction. "
-        "Never invent a category that is not in the list. "
+        "Never invent a category that is not in the list -- copy the "
+        "category name EXACTLY as given, including punctuation. "
         "Respond with ONLY a JSON object, no preamble, no markdown fences, "
         "in this exact shape:\n"
         '{"category": "<exact category name from the list>", '
@@ -156,9 +179,7 @@ def _build_ai_prompt(
 
 def _call_openrouter(messages: list[dict]) -> Optional[str]:
     if not OPENROUTER_API_KEY:
-        raise RuntimeError(
-            "OPENROUTER_API_KEY is not set. Add it to your .env file."
-        )
+        raise RuntimeError("OPENROUTER_API_KEY is not set. Add it to your .env file.")
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -169,20 +190,16 @@ def _call_openrouter(messages: list[dict]) -> Optional[str]:
     payload = {
         "model": OPENROUTER_MODEL,
         "messages": messages,
-        "temperature": 0.1,   # low temperature: we want consistent classification, not creativity
+        "temperature": 0.1,
         "max_tokens": 200,
     }
 
     try:
-        resp = requests.post(
-            OPENROUTER_URL, headers=headers, json=payload, timeout=AI_TIMEOUT_SECONDS
-        )
+        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=AI_TIMEOUT_SECONDS)
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"]
     except requests.exceptions.RequestException as e:
-        # Network/API failure: caller treats this as "AI unavailable", falls
-        # back to unresolved rather than crashing the categorize workflow.
         print(f"[category_engine] OpenRouter request failed: {e}")
         return None
     except (KeyError, IndexError) as e:
@@ -191,7 +208,6 @@ def _call_openrouter(messages: list[dict]) -> Optional[str]:
 
 
 def _parse_ai_json(raw: str) -> Optional[dict]:
-    """Strips markdown fences defensively, then parses JSON."""
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
@@ -212,12 +228,11 @@ def _try_ai(
     amount: float,
     direction: str,
     business_type_label: str,
-    category_master: dict,
+    categories: list[dict],
     historical_examples: Optional[list[dict]] = None,
-) -> Optional[tuple[str, float, str]]:
+) -> Optional[tuple[int, float, str, str]]:
     messages = _build_ai_prompt(
-        description, amount, direction, business_type_label,
-        category_master, historical_examples,
+        description, amount, direction, business_type_label, categories, historical_examples,
     )
     raw = _call_openrouter(messages)
     if raw is None:
@@ -228,20 +243,15 @@ def _try_ai(
         print(f"[category_engine] Could not parse AI response as JSON: {raw!r}")
         return None
 
-    category = parsed["category"]
-    confidence = float(parsed["confidence"])
+    category_name = parsed["category"]
+    confidence = min(float(parsed["confidence"]), 0.85)  # AI always capped, needs human review
 
-    if category not in category_master:
-        # Model hallucinated a category outside the allowed list -- treat as
-        # unresolved rather than silently accepting an invalid category.
-        print(f"[category_engine] AI returned unknown category: {category!r}")
+    match = next((c for c in categories if c["name"] == category_name), None)
+    if match is None:
+        print(f"[category_engine] AI returned unknown category: {category_name!r}")
         return None
 
-    # Cap AI-sourced confidence below deterministic matches, since AI
-    # suggestions always need human review per project policy.
-    confidence = min(confidence, 0.85)
-
-    return category, confidence, "ai", raw
+    return match["id"], confidence, "ai", raw
 
 
 # ---------------------------------------------------------------------------
@@ -249,20 +259,17 @@ def _try_ai(
 # ---------------------------------------------------------------------------
 
 def categorize_transaction(
-    client_id: str,
+    client_id: int,
     description: str,
     amount: float,
     direction: str,
     business_type_code: str,
-    category_master: dict,
     historical_examples: Optional[list[dict]] = None,
 ) -> CategorySuggestion:
     """
     Main entry point used by routes/workflow_routes.py during the
-    Categorize step.
-
-    category_master: the full {category_name: {gst_applicable, gst_rate,
-        pnl_group, ...}} dict loaded from core/category_master.py
+    Categorize step. Pulls the live Category Master from the DB via
+    core.category_master.list_categories() -- no need to pass it in.
 
     Returns a CategorySuggestion. Never raises for "no category found" --
     returns source="unresolved" instead, so the UI can show a manual-pick
@@ -271,48 +278,38 @@ def categorize_transaction(
     if not is_valid_business_type(business_type_code):
         raise ValueError(f"Unknown business_type_code: {business_type_code!r}")
 
+    categories = list_categories()  # [{id, code, name, pnl_group, gst_applicable, gst_rate, bas_label, ...}, ...]
+    raw_ai = None
+
     # --- Stage 1 ---
-    deterministic = _try_deterministic(client_id, description, category_master)
+    deterministic = _try_deterministic(client_id, description)
     if deterministic:
-        category, confidence, source = deterministic
-        raw_ai = None
+        category_id, confidence, source = deterministic
     else:
         # --- Stage 2 ---
-        business_type_label = next(
-            b["label"] for b in __import__(
-                "core.business_types", fromlist=["BUSINESS_TYPES"]
-            ).BUSINESS_TYPES if b["code"] == business_type_code
-        )
+        business_type_label = next(b["label"] for b in BUSINESS_TYPES if b["code"] == business_type_code)
         ai_result = _try_ai(
-            description, amount, direction, business_type_label,
-            category_master, historical_examples,
+            description, amount, direction, business_type_label, categories, historical_examples,
         )
         if ai_result:
-            category, confidence, source, raw_ai = ai_result
+            category_id, confidence, source, raw_ai = ai_result
         else:
-            # Fully unresolved -- caller/UI should prompt for manual category pick.
-            default_cat = next(iter(category_master.keys()))  # placeholder only
-            return CategorySuggestion(
-                category="",
-                confidence=0.0,
-                source="unresolved",
-                gst_applicable=False,
-                gst_rate=0.0,
-                input_taxed=False,
-                gst_note="No deterministic or AI match found -- manual selection required.",
-            )
+            return _unresolved("No deterministic or AI match found -- manual selection required.")
 
-    # --- GST resolution (business-type aware) ---
-    cat_meta = category_master[category]
+    cat_row = get_category(category_id)
+    if cat_row is None:
+        return _unresolved(f"Resolved category_id {category_id} no longer exists -- manual selection required.")
+
     gst = get_gst_treatment(
-        category_name=category,
+        category_name=cat_row["name"],
         business_type_code=business_type_code,
-        default_gst_applicable=cat_meta.get("gst_applicable", False),
-        default_gst_rate=cat_meta.get("gst_rate", 0.0),
+        default_gst_applicable=bool(cat_row["gst_applicable"]),
+        default_gst_rate=cat_row["gst_rate"],
     )
 
     return CategorySuggestion(
-        category=category,
+        category_id=category_id,
+        category_name=cat_row["name"],
         confidence=confidence,
         source=source,
         gst_applicable=gst["gst_applicable"],

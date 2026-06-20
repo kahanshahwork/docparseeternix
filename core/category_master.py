@@ -24,6 +24,8 @@ DEFAULT_CATEGORIES = [
     ("RENT",          "Rent / Lease Expense",             "Expense",  1, 0.10, "G11",      110),
     ("TELECOM",        "Telephone / Internet",             "Expense",  1, 0.10, "G11",      120),
     ("TRAVEL",         "Travel & Vehicle",                  "Expense",  1, 0.10, "G11",      130),
+    ("MEALS",          "Meals & Entertainment",             "Expense",  1, 0.10, "G11",      135),
+    ("SUBSCRIPTIONS",  "Subscriptions & Software",           "Expense",  1, 0.10, "G11",      137),
     ("OFFICE",         "Office Supplies",                   "Expense",  1, 0.10, "G11",      140),
     ("PROFESSIONAL",   "Professional / Contractor Fees",    "Expense",  1, 0.10, "G11",      150),
     ("SALARY",         "Salary & Wages",                    "Expense",  0, 0.0,  "excluded", 160),
@@ -40,9 +42,11 @@ DEFAULT_CATEGORIES = [
 
 
 def seed_categories():
+    """Seeds the full DEFAULT_CATEGORIES set on a brand-new (empty) database."""
     conn = get_db()
     existing = conn.execute("SELECT COUNT(*) c FROM categories").fetchone()["c"]
     if existing:
+        sync_new_categories()
         return
     conn.executemany(
         """INSERT INTO categories (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
@@ -50,6 +54,28 @@ def seed_categories():
         DEFAULT_CATEGORIES,
     )
     conn.commit()
+
+
+def sync_new_categories():
+    """
+    Idempotent: inserts any DEFAULT_CATEGORIES rows whose `code` doesn't
+    already exist in the DB, without touching existing rows. Safe to call
+    on every startup -- this is what lets you add a new category to
+    DEFAULT_CATEGORIES above and have it appear in an already-running
+    deployment without a manual migration.
+    """
+    conn = get_db()
+    existing_codes = {r["code"] for r in conn.execute("SELECT code FROM categories").fetchall()}
+    missing = [row for row in DEFAULT_CATEGORIES if row[0] not in existing_codes]
+    if missing:
+        conn.executemany(
+            """INSERT INTO categories (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
+               VALUES (?,?,?,?,?,?,?)""",
+            missing,
+        )
+        conn.commit()
+        print(f"[category_master] Added {len(missing)} new category(ies): "
+              f"{[m[1] for m in missing]}")
 
 
 def list_categories(active_only: bool = True):

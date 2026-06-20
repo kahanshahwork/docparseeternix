@@ -213,6 +213,10 @@ td { padding: 8px 12px; font-size: 12px; }
     <div class="nav-item disabled" data-page="gst"><span class="step-num">4</span><span class="ic">💰</span> GST Review</div>
     <div class="nav-item disabled" data-page="pnl"><span class="step-num">5</span><span class="ic">📊</span> Profit &amp; Loss</div>
   </div>
+  <div class="nav-group">
+    <div class="nav-label">Admin</div>
+    <div class="nav-item" data-page="clients"><span class="ic">🏢</span> Clients</div>
+  </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded yet</div>
 </aside>
 
@@ -233,6 +237,18 @@ td { padding: 8px 12px; font-size: 12px; }
             <span class="file-icon">📄</span>
             <span class="file-name" id="fileNameLabel"></span>
             <button class="file-remove" id="removeFile" title="Remove">✕</button>
+          </div>
+        </div>
+        <div class="sb-section">
+          <div class="sb-label">Client &amp; Quarter <span style="color:var(--red)">*</span></div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <select id="parseClientSelect" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);">
+              <option value="">Select client…</option>
+            </select>
+            <select id="parseQuarterSelect" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);" disabled>
+              <option value="">Select client first…</option>
+            </select>
+            <button class="btn-sec" id="newQuarterBtn" style="display:none; font-size:11px;">+ New Quarter</button>
           </div>
         </div>
         <div class="sb-section">
@@ -395,6 +411,32 @@ td { padding: 8px 12px; font-size: 12px; }
     </div>
   </div>
 
+  <div class="page" id="page-clients">
+    <div class="page-header">
+      <h1>Clients</h1>
+      <span class="sub">Each client's business type controls GST treatment overrides during categorization</span>
+    </div>
+    <div class="wf-content">
+      <div class="panel">
+        <h2>Add Client</h2>
+        <div class="psub">Business type can be changed later — it only affects category GST resolution going forward, it does not retroactively recalculate already-approved transactions.</div>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+          <input type="text" id="newClientName" placeholder="Client name" style="flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);">
+          <select id="newClientBusinessType" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);"></select>
+          <button class="btn" id="addClientBtn">Add Client</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="wf-table-scroll">
+          <table class="wf-table">
+            <thead><tr><th>Name</th><th>Business Type</th><th>Created</th></tr></thead>
+            <tbody id="clientsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <div class="modal-overlay" id="ambModal">
@@ -429,6 +471,7 @@ function goPage(name) {
   if (name === "categorize") loadCategorize();
   if (name === "gst") loadGst();
   if (name === "pnl") loadPnl();
+  if (name === "clients") loadClients();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
   item.addEventListener("click", () => { if (item.classList.contains("disabled")) return; goPage(item.dataset.page); });
@@ -708,11 +751,21 @@ function selectAmbOpt(btn) {
 
 workflowBtn.addEventListener("click", async () => {
   if (!allTxns.length) return;
+  const quarterId = document.getElementById("parseQuarterSelect").value;
+  if (!quarterId) {
+    showError("Select a client and quarter before sending to workflow — every statement must be linked to a client.");
+    return;
+  }
   workflowBtn.textContent = "Sending…"; workflowBtn.disabled = true;
   try {
     const res = await fetch("/api/statements", {
       method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ bank_id: parseMeta.bank_id || detectedBank, filename: selectedFile?selectedFile.name:"statement.pdf", transactions: allTxns }),
+      body: JSON.stringify({
+        bank_id: parseMeta.bank_id || detectedBank,
+        filename: selectedFile?selectedFile.name:"statement.pdf",
+        transactions: allTxns,
+        quarter_id: parseInt(quarterId),
+      }),
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -724,6 +777,52 @@ workflowBtn.addEventListener("click", async () => {
   } catch(e) { showError("Could not send to workflow: " + e.message); }
   finally { workflowBtn.textContent = "→ Send to Workflow"; workflowBtn.disabled = false; }
 });
+
+// ── Client/Quarter selector on the Upload & Parse page ──────────────────
+let parseClients = [];
+
+async function loadParseClients() {
+  parseClients = await (await fetch("/api/clients")).json();
+  const sel = document.getElementById("parseClientSelect");
+  sel.innerHTML = `<option value="">Select client…</option>` +
+    parseClients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+}
+
+document.getElementById("parseClientSelect").addEventListener("change", async (e) => {
+  const clientId = e.target.value;
+  const qSel = document.getElementById("parseQuarterSelect");
+  const newQBtn = document.getElementById("newQuarterBtn");
+  if (!clientId) {
+    qSel.innerHTML = `<option value="">Select client first…</option>`;
+    qSel.disabled = true;
+    newQBtn.style.display = "none";
+    return;
+  }
+  const quarters = await (await fetch(`/api/quarters?client_id=${clientId}`)).json();
+  qSel.disabled = false;
+  newQBtn.style.display = "inline-block";
+  if (!quarters.length) {
+    qSel.innerHTML = `<option value="">No quarters yet — click "+ New Quarter"</option>`;
+  } else {
+    qSel.innerHTML = quarters.map(q => `<option value="${q.id}">${esc(q.label)}</option>`).join("");
+  }
+});
+
+document.getElementById("newQuarterBtn").addEventListener("click", async () => {
+  const clientId = document.getElementById("parseClientSelect").value;
+  if (!clientId) return;
+  const label = prompt('New quarter label (e.g. "Q1 2026"):');
+  if (!label) return;
+  const resp = await fetch("/api/quarters", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ client_id: parseInt(clientId), label }),
+  });
+  const data = await resp.json();
+  if (data.error) { alert("Failed to create quarter: " + data.error); return; }
+  document.getElementById("parseClientSelect").dispatchEvent(new Event("change"));
+});
+
+loadParseClients();
 
 async function loadCategories() { if (categories.length) return categories; categories = await (await fetch("/api/categories")).json(); return categories; }
 function categorySelect(selectedId, txnId) {
@@ -856,6 +955,83 @@ async function loadPnl() {
       <span>Net Profit</span><span style="color:${pnl.net_profit>=0?'var(--green)':'var(--red)'}">${fmt(pnl.net_profit)}</span>
     </div>`;
 }
+
+// ── Clients admin page ──────────────────────────────────────────────────
+let businessTypes = [];
+
+async function loadBusinessTypes() {
+  if (businessTypes.length) return businessTypes;
+  businessTypes = await (await fetch("/api/business-types")).json();
+  return businessTypes;
+}
+
+function businessTypeOptionsHtml(selectedCode) {
+  return businessTypes.map(b =>
+    `<option value="${esc(b.code)}" ${b.code === selectedCode ? "selected" : ""}>${esc(b.label)}</option>`
+  ).join("");
+}
+
+async function loadClients() {
+  await loadBusinessTypes();
+  document.getElementById("newClientBusinessType").innerHTML = businessTypeOptionsHtml("RETAIL_TRADING");
+
+  const clients = await (await fetch("/api/clients")).json();
+  const tbody = document.getElementById("clientsBody");
+  if (!clients.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="wf-empty">No clients yet — add one above.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = clients.map(c => `
+    <tr data-client-id="${c.id}">
+      <td>${esc(c.name)}</td>
+      <td>
+        <select class="client-bt-select" data-client-id="${c.id}" style="padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);">
+          ${businessTypeOptionsHtml(c.business_type)}
+        </select>
+      </td>
+      <td style="color:var(--muted); font-size:12px;">${esc((c.created_at || "").split("T")[0] || c.created_at || "")}</td>
+    </tr>
+  `).join("");
+
+  document.querySelectorAll(".client-bt-select").forEach(sel => {
+    sel.addEventListener("change", async (e) => {
+      const clientId = e.target.dataset.clientId;
+      const newType = e.target.value;
+      const prevBorder = e.target.style.borderColor;
+      try {
+        const resp = await fetch(`/api/clients/${clientId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ business_type: newType }),
+        });
+        if (!resp.ok) throw new Error((await resp.json()).error || "Update failed");
+        e.target.style.borderColor = "var(--green)";
+        setTimeout(() => { e.target.style.borderColor = prevBorder; }, 800);
+      } catch (err) {
+        alert("Failed to update business type: " + err.message);
+      }
+    });
+  });
+}
+
+document.getElementById("addClientBtn").addEventListener("click", async () => {
+  const nameInput = document.getElementById("newClientName");
+  const btSelect = document.getElementById("newClientBusinessType");
+  const name = nameInput.value.trim();
+  if (!name) { alert("Enter a client name."); return; }
+  try {
+    const resp = await fetch("/api/clients", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, business_type: btSelect.value }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error || "Add failed");
+    nameInput.value = "";
+    loadClients();
+  } catch (err) {
+    alert("Failed to add client: " + err.message);
+  }
+});
 </script>
 </body>
 </html>
