@@ -360,6 +360,7 @@ td { padding: 8px 12px; font-size: 12px; }
       <h1>Category Allocation</h1>
       <span class="sub" id="catProgress"></span>
       <div class="right">
+        <button class="btn-sec" id="aiSuggestBtn">✨ AI Suggest All</button>
         <button class="btn-sec" id="toggleGroupView">Switch to Grouped View</button>
         <button class="btn" id="catContinueBtn">Continue to GST Review →</button>
       </div>
@@ -851,11 +852,24 @@ document.getElementById("approveBtn").addEventListener("click", async () => {
   goPage("categorize");
 });
 
+let aiSuggestions = {};  // {tid: {category_id, category_name, confidence, source, gst_note}}
+
 async function loadCategorize() {
   if (!statementId) return;
   await loadCategories();
   wfTransactions = await (await fetch(`/api/statements/${statementId}/transactions`)).json();
   renderFlatCategorize(); updateCatProgress();
+}
+function suggestionBadge(tid) {
+  const s = aiSuggestions[tid];
+  if (!s || !s.category_id) return "";
+  const pct = Math.round((s.confidence || 0) * 100);
+  const color = pct >= 70 ? "var(--green)" : pct >= 40 ? "#d4a017" : "var(--red)";
+  const title = s.gst_note ? esc(s.gst_note) : `${s.source} suggestion`;
+  return `<button class="ai-suggest-chip" title="${title}" style="margin-left:6px;font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid ${color};color:${color};background:transparent;cursor:pointer;"
+            onclick="assignCategory(${tid}, ${s.category_id}); this.style.display='none';">
+            ✨ ${esc(s.category_name)} (${pct}%)
+          </button>`;
 }
 function renderFlatCategorize() {
   document.getElementById("categorizeBody").innerHTML = wfTransactions.map(t => `
@@ -863,7 +877,7 @@ function renderFlatCategorize() {
       <td>${esc(t.date||"")}</td>
       <td>${esc(t.description||"")}</td>
       <td class="td-amt ${t.amount>=0?'pos':'neg'}" style="text-align:right;font-family:var(--mono)">${fmt(t.amount)}</td>
-      <td>${categorySelect(t.category_id, t.id)}</td>
+      <td>${categorySelect(t.category_id, t.id)}${!t.category_id ? suggestionBadge(t.id) : ""}</td>
     </tr>`).join("");
 }
 async function assignCategory(tid, categoryId) {
@@ -871,12 +885,15 @@ async function assignCategory(tid, categoryId) {
   await fetch(`/api/statements/${statementId}/categorize`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ transaction_ids:[tid], category_id: parseInt(categoryId) }) });
   const t = wfTransactions.find(x => x.id === tid); if (t) t.category_id = parseInt(categoryId);
   updateCatProgress();
+  if (groupedMode) loadGroupedView();
+  else renderFlatCategorize();
 }
 async function assignGroupCategory(ids, categoryId) {
   if (!categoryId) return;
   await fetch(`/api/statements/${statementId}/categorize`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ transaction_ids: ids, category_id: parseInt(categoryId) }) });
   ids.forEach(id => { const t = wfTransactions.find(x => x.id === id); if (t) t.category_id = parseInt(categoryId); });
-  updateCatProgress(); loadGroupedView();
+  updateCatProgress();
+  loadGroupedView();
 }
 function updateCatProgress() {
   const done = wfTransactions.filter(t => t.category_id).length;
@@ -889,18 +906,79 @@ document.getElementById("toggleGroupView").addEventListener("click", async () =>
   document.getElementById("flatView").style.display = groupedMode ? "none" : "";
   if (groupedMode) loadGroupedView();
 });
-async function loadGroupedView() {
-  const groups = await (await fetch(`/api/statements/${statementId}/groups`)).json();
-  document.getElementById("groupedView").innerHTML = groups.map(g => `
-    <div class="group-card">
-      <div class="group-head">
-        <span class="group-badge">${esc(g.group_key)}</span>
-        <div class="desc">${esc(g.sample_description)}</div>
-        <span class="count">${g.count} txns · ${fmt(g.total)}</span>
-        ${categorySelect(null, null).replace('onchange="assignCategory(null, this.value)"', `onchange="assignGroupCategory([${g.transaction_ids.join(",")}], this.value)"`)}
-      </div>
-    </div>`).join("") || '<div class="wf-empty">No groups found.</div>';
+
+const expandedGroups = new Set();
+
+function renderGroupSection(title, groups, sectionKey) {
+  if (!groups.length) return `<div class="wf-empty" style="margin-bottom:16px">No ${title.toLowerCase()} transactions.</div>`;
+  return `
+    <div style="margin:18px 0 8px"><strong>${esc(title)}</strong> <span style="color:var(--muted);font-size:12px">(${groups.length} groups)</span></div>
+    ${groups.map((g, i) => {
+      const groupId = `${sectionKey}-${i}`;
+      const isOpen = expandedGroups.has(groupId);
+      return `
+      <div class="group-card">
+        <div class="group-head" style="cursor:pointer" onclick="toggleGroupExpand('${groupId}')">
+          <span class="group-badge">${esc(g.group_key)}</span>
+          <div class="desc">${esc(g.sample_description)}</div>
+          <span class="count">${g.count} txns · ${fmt(g.total)}</span>
+          <span style="margin:0 8px;color:var(--muted)">${isOpen ? "▲ Collapse" : "▼ Expand"}</span>
+          <span onclick="event.stopPropagation()">
+            ${categorySelect(g.dominant_category_id, null).replace('onchange="assignCategory(null, this.value)"', `onchange="assignGroupCategory([${g.transactions.map(t=>t.id).join(",")}], this.value)"`)}
+          </span>
+        </div>
+        ${isOpen ? `
+        <div class="group-expanded" style="padding:8px 16px 14px;border-top:1px solid var(--border)">
+          <table class="wf-table">
+            <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Category</th></tr></thead>
+            <tbody>
+              ${g.transactions.map(t => `
+                <tr>
+                  <td>${esc(t.date||"")}</td>
+                  <td>${esc(t.description||"")}</td>
+                  <td class="td-amt ${t.amount>=0?'pos':'neg'}" style="text-align:right;font-family:var(--mono)">${fmt(t.amount)}</td>
+                  <td>${categorySelect(t.category_id, t.id)}${!t.category_id ? suggestionBadge(t.id) : ""}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>` : ""}
+      </div>`;
+    }).join("")}
+  `;
 }
+function toggleGroupExpand(groupId) {
+  if (expandedGroups.has(groupId)) expandedGroups.delete(groupId);
+  else expandedGroups.add(groupId);
+  loadGroupedView();
+}
+async function loadGroupedView() {
+  const data = await (await fetch(`/api/statements/${statementId}/groups`)).json();
+  document.getElementById("groupedView").innerHTML =
+    renderGroupSection("Debit (Money Out)", data.debit, "debit") +
+    renderGroupSection("Credit (Money In)", data.credit, "credit");
+}
+
+document.getElementById("aiSuggestBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("aiSuggestBtn");
+  const original = btn.textContent;
+  btn.textContent = "Thinking…"; btn.disabled = true;
+  try {
+    const resp = await fetch(`/api/statements/${statementId}/categorize/ai-batch`, { method: "POST" });
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+    aiSuggestions = {};
+    Object.entries(data).forEach(([tid, s]) => { aiSuggestions[parseInt(tid)] = s; });
+    const count = Object.values(aiSuggestions).filter(s => s.category_id).length;
+    btn.textContent = `✨ ${count} suggestions ready`;
+    if (groupedMode) loadGroupedView(); else renderFlatCategorize();
+  } catch (e) {
+    alert("AI suggestion request failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = original; }, 3000);
+  }
+});
+
 document.getElementById("catContinueBtn").addEventListener("click", () => { markDone("categorize"); goPage("gst"); });
 
 async function loadGst() {

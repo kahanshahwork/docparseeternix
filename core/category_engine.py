@@ -388,3 +388,193 @@ def categorize_transaction(
         gst_note=gst_note,
         raw_ai_response=raw_ai if source == "ai" else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch entry point -- one AI call for many transactions
+# ---------------------------------------------------------------------------
+# Purpose: Groq's free tier has a requests-per-minute limit. Calling
+# categorize_transaction() once per transaction for a 200-row statement
+# means 200 separate API calls, which hits that limit fast. This function
+# runs Stage 1 (free, instant, no API call) for every transaction first,
+# then sends every transaction Stage 1 couldn't resolve to Groq as a SINGLE
+# request containing all of them, and parses a single JSON array response
+# back. Same two-stage logic, same guardrails, same "never auto-apply"
+# rule -- just batched at the network level.
+
+MAX_BATCH_SIZE = 40  # Groq free tier has per-request token limits too; large
+                      # statements get chunked into batches of this size
+                      # rather than one giant prompt that could get truncated.
+
+
+def _build_batch_ai_prompt(
+    batch: list[dict],   # [{"id": txn_id, "description": str, "amount": float, "direction": str}, ...]
+    business_type_label: str,
+    categories: list[dict],
+) -> list[dict]:
+    category_list_str = "\n".join(
+        f'- "{c["name"]}" (P&L Group: {c["pnl_group"]})' for c in categories
+    )
+    txn_lines = "\n".join(
+        f'  {{"id": {t["id"]}, "description": "{t["description"]}", '
+        f'"amount": {t["amount"]}, "direction": "{t["direction"]}"}}'
+        for t in batch
+    )
+
+    system_prompt = (
+        "You are a bookkeeping categorization assistant for an Australian "
+        "accounting firm. For EVERY transaction in the list below, choose "
+        "exactly ONE category from the provided Category Master. Never "
+        "invent a category not in the list -- copy the name EXACTLY.\n\n"
+        "CRITICAL RULE: a 'debit' means money LEFT the account (an expense) "
+        "-- it must map to a category with P&L Group 'Expense' or "
+        "'Excluded', NEVER 'Income'. A 'credit' means money ENTERED the "
+        "account (income) -- it must map to 'Income' or 'Excluded', NEVER "
+        "'Expense'. Do not be misled by the merchant's own business type.\n\n"
+        "Respond with ONLY a JSON array, no preamble, no markdown fences, "
+        "one object per transaction, in this exact shape, using the SAME "
+        "id values given to you:\n"
+        '[{"id": <id>, "category": "<exact category name>", '
+        '"confidence": <float 0.0-1.0>}, ...]\n'
+        "Return one result for every transaction id given -- do not skip any."
+    )
+
+    user_prompt = (
+        f"Business type: {business_type_label}\n\n"
+        f"Category Master (choose exactly one category name per transaction):\n"
+        f"{category_list_str}\n\n"
+        f"Transactions to categorize:\n[\n{txn_lines}\n]\n\n"
+        "Return only the JSON array."
+    )
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _parse_batch_ai_json(raw: str) -> Optional[list[dict]]:
+    cleaned = raw.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:]
+    cleaned = cleaned.strip()
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, list):
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return None
+
+
+def categorize_transactions_batch(
+    client_id: int,
+    transactions: list[dict],   # [{"id": int, "description": str, "amount": float, "direction": str}, ...]
+    business_type_code: str,
+) -> dict[int, CategorySuggestion]:
+    """
+    Main entry point for bulk categorization (e.g. "AI Suggest All" button
+    on the Categorize page). Returns {transaction_id: CategorySuggestion}.
+
+    Stage 1 runs per-transaction with zero API calls. Only transactions
+    Stage 1 can't resolve are sent to Groq, batched MAX_BATCH_SIZE at a
+    time, so a 200-row statement with decent vendor memory coverage might
+    only need 1-2 actual API calls instead of 200.
+    """
+    if not is_valid_business_type(business_type_code):
+        raise ValueError(f"Unknown business_type_code: {business_type_code!r}")
+
+    categories = list_categories()
+    results: dict[int, CategorySuggestion] = {}
+    needs_ai: list[dict] = []
+
+    # --- Stage 1 for every transaction (free, instant) ---
+    for t in transactions:
+        deterministic = _try_deterministic(client_id, t["description"], t["direction"])
+        if deterministic:
+            category_id, confidence, source = deterministic
+            results[t["id"]] = _finalize_suggestion(category_id, confidence, source, t["direction"], business_type_code, None)
+        else:
+            needs_ai.append(t)
+
+    if not needs_ai:
+        return results
+
+    business_type_label = next(b["label"] for b in BUSINESS_TYPES if b["code"] == business_type_code)
+
+    # --- Stage 2: batched AI calls, MAX_BATCH_SIZE transactions per request ---
+    for i in range(0, len(needs_ai), MAX_BATCH_SIZE):
+        chunk = needs_ai[i:i + MAX_BATCH_SIZE]
+        # Each transaction may have a different direction, so we can't
+        # pre-filter the category list the way the single-item path does --
+        # the per-result direction guardrail below catches any mismatch instead.
+        messages = _build_batch_ai_prompt(chunk, business_type_label, categories)
+        raw = _call_groq(messages)
+        if raw is None:
+            for t in chunk:
+                results[t["id"]] = _unresolved("Groq batch request failed -- manual selection required.")
+            continue
+
+        parsed = _parse_batch_ai_json(raw)
+        if parsed is None:
+            print(f"[category_engine] Could not parse batch AI response as JSON array: {raw!r}")
+            for t in chunk:
+                results[t["id"]] = _unresolved("AI batch response could not be parsed -- manual selection required.")
+            continue
+
+        by_id = {int(item["id"]): item for item in parsed if "id" in item}
+        cat_by_name = {c["name"]: c for c in categories}
+
+        for t in chunk:
+            item = by_id.get(t["id"])
+            if item is None or item.get("category") not in cat_by_name:
+                results[t["id"]] = _unresolved("AI did not return a valid category for this transaction -- manual selection required.")
+                continue
+            cat = cat_by_name[item["category"]]
+            confidence = min(float(item.get("confidence", 0.5)), 0.85)
+            results[t["id"]] = _finalize_suggestion(cat["id"], confidence, "ai", t["direction"], business_type_code, raw)
+
+    return results
+
+
+def _finalize_suggestion(
+    category_id: int, confidence: float, source: str, direction: str,
+    business_type_code: str, raw_ai: Optional[str],
+) -> CategorySuggestion:
+    """Shared tail logic: GST resolution + direction guardrail. Used by both
+    the single-transaction and batch entry points so the safety checks
+    can't drift out of sync between the two."""
+    cat_row = get_category(category_id)
+    if cat_row is None:
+        return _unresolved(f"Resolved category_id {category_id} no longer exists -- manual selection required.")
+
+    gst = get_gst_treatment(
+        category_name=cat_row["name"],
+        business_type_code=business_type_code,
+        default_gst_applicable=bool(cat_row["gst_applicable"]),
+        default_gst_rate=cat_row["gst_rate"],
+    )
+    gst_note = gst["note"]
+
+    if _direction_mismatch(direction, cat_row["pnl_group"]):
+        flag = (
+            f"⚠ FLAGGED FOR REVIEW: a '{direction}' transaction was resolved to "
+            f"'{cat_row['name']}' (P&L Group: {cat_row['pnl_group']}), which "
+            f"conflicts with the transaction direction -- manually verify before approving."
+        )
+        gst_note = f"{flag} {gst_note}" if gst_note else flag
+        confidence = min(confidence, 0.30)
+
+    return CategorySuggestion(
+        category_id=category_id,
+        category_name=cat_row["name"],
+        confidence=confidence,
+        source=source,
+        gst_applicable=gst["gst_applicable"],
+        gst_rate=gst["gst_rate"],
+        input_taxed=gst["input_taxed"],
+        gst_note=gst_note,
+        raw_ai_response=raw_ai if source == "ai" else None,
+    )

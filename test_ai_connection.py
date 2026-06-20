@@ -62,7 +62,7 @@ def main():
     # --- Step 4: call the AI fallback directly ---
     # Description deliberately won't match vendor memory or any semantic
     # bucket keyword, so this is guaranteed to fall through to Stage 2 (AI).
-    test_description = "7-ELEVEN 1310 SANDOWN VILLA VI AUS"
+    test_description = "ABU RASHEDS SUPERMARKE ROXBURGH PARK AU"
     print(f"\n→ Sending test transaction to AI: \"{test_description}\"")
     print("  (this transaction won't match vendor memory or semantic buckets,")
     print("   so it MUST go through Groq to resolve)\n")

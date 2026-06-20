@@ -20,7 +20,8 @@ Flow: POST /api/statements (ingest parsed txns)
 
 from flask import Blueprint, request, jsonify
 from core.db import get_db, log_audit
-from core import category_master, gst_engine, pnl_engine, vendor_memory
+from core import category_master, gst_engine, pnl_engine, vendor_memory, category_engine
+from core.business_types import is_valid_business_type
 
 workflow_bp = Blueprint("workflow", __name__, url_prefix="/api")
 
@@ -177,18 +178,103 @@ def approve_statement(sid):
 
 @workflow_bp.route("/statements/<int:sid>/groups", methods=["GET"])
 def get_groups(sid):
+    """
+    Returns groups split into two top-level buckets -- debit (money out)
+    and credit (money in) -- since mixing the two in one flat list made no
+    structural sense (an expense vendor and an income source should never
+    be candidates for the same category). Within each bucket, transactions
+    are grouped semantically as before (vendor_memory.group_transactions).
+
+    Each group now includes the FULL transaction list (not just ids), so
+    the frontend can render an expand/collapse view without extra round
+    trips, and a `dominant_category_id` so the group's category dropdown
+    correctly reflects what's already been assigned instead of always
+    showing "Uncategorized" even after a category was applied.
+    """
     conn = get_db()
     rows = [dict(r) for r in conn.execute(
         "SELECT * FROM transactions WHERE statement_id = ?", (sid,)
     ).fetchall()]
-    groups = vendor_memory.group_transactions(rows)
-    out = [
-        {"group_key": k, "count": len(v), "total": round(sum(t["amount"] for t in v), 2),
-         "transaction_ids": [t["id"] for t in v], "sample_description": v[0]["description"]}
-        for k, v in groups.items()
+
+    debit_rows = [r for r in rows if r["amount"] < 0]
+    credit_rows = [r for r in rows if r["amount"] >= 0]
+
+    def build_groups(direction_rows):
+        groups = vendor_memory.group_transactions(direction_rows)
+        out = []
+        for k, v in groups.items():
+            cat_ids = {t["category_id"] for t in v if t["category_id"] is not None}
+            dominant = next(iter(cat_ids)) if len(cat_ids) == 1 else None
+            out.append({
+                "group_key": k,
+                "count": len(v),
+                "total": round(sum(t["amount"] for t in v), 2),
+                "sample_description": v[0]["description"],
+                "dominant_category_id": dominant,
+                "transactions": [
+                    {
+                        "id": t["id"], "date": t.get("date"), "description": t["description"],
+                        "amount": t["amount"], "category_id": t["category_id"],
+                    }
+                    for t in v
+                ],
+            })
+        out.sort(key=lambda g: -g["count"])
+        return out
+
+    return jsonify({
+        "debit": build_groups(debit_rows),
+        "credit": build_groups(credit_rows),
+    })
+
+
+@workflow_bp.route("/statements/<int:sid>/categorize/ai-batch", methods=["POST"])
+def categorize_ai_batch(sid):
+    """
+    Runs the full two-stage engine (vendor memory -> semantic bucket -> ONE
+    batched Groq call for everything left) across every uncategorized
+    transaction in this statement. Returns suggestions only -- nothing is
+    written to the database here, matching the "AI suggestions are never
+    auto-applied" rule. The frontend shows these as suggestion badges the
+    user accepts individually or in bulk via the normal /categorize endpoint.
+    """
+    conn = get_db()
+    client_id = get_client_id_for_statement(conn, sid)
+    if client_id is None:
+        return jsonify({"error": "This statement has no client linked (no quarter_id) -- "
+                                  "cannot resolve business_type for AI categorization."}), 400
+
+    client_row = conn.execute("SELECT business_type FROM clients WHERE id = ?", (client_id,)).fetchone()
+    business_type_code = client_row["business_type"] if client_row else "RETAIL_TRADING"
+
+    rows = conn.execute(
+        "SELECT * FROM transactions WHERE statement_id = ? AND category_id IS NULL", (sid,)
+    ).fetchall()
+    if not rows:
+        return jsonify({})
+
+    batch_input = [
+        {
+            "id": r["id"],
+            "description": r["description"],
+            "amount": r["amount"],
+            "direction": "debit" if r["amount"] < 0 else "credit",
+        }
+        for r in rows
     ]
-    out.sort(key=lambda g: -g["count"])
-    return jsonify(out)
+
+    results = category_engine.categorize_transactions_batch(client_id, batch_input, business_type_code)
+
+    return jsonify({
+        str(tid): {
+            "category_id": s.category_id,
+            "category_name": s.category_name,
+            "confidence": s.confidence,
+            "source": s.source,
+            "gst_note": s.gst_note,
+        }
+        for tid, s in results.items()
+    })
 
 
 # ── Categorization (items 6, 7) ─────────────────────────────────────────────
