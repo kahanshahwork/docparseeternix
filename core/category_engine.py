@@ -45,8 +45,8 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 
-OR_SITE_URL = os.environ.get("OR_SITE_URL", "https://varcrm.vercel.app")
-OR_APP_NAME = os.environ.get("OR_APP_NAME", "Vardhman BAS Workflow")
+OR_SITE_URL = os.environ.get("OR_SITE_URL", "http://localhost:5000")
+OR_APP_NAME = os.environ.get("OR_APP_NAME", "DocParse BAS Workflow")
 
 AI_TIMEOUT_SECONDS = 30
 
