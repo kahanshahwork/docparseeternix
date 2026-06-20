@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DocParse – Workflow</title>
+<style>
+:root {
+  --bg: #0a0c10; --surface:#111318; --surface2:#181c25; --surface3:#1f2434;
+  --border:#252b3b; --border2:#2e3650; --accent:#4f8ef7; --accent-lo:rgba(79,142,247,.12);
+  --green:#22d35e; --green-lo:rgba(34,211,94,.1); --red:#f04965; --red-lo:rgba(240,73,101,.1);
+  --amber:#f5a623; --amber-lo:rgba(245,166,35,.1); --muted:#5a6480; --text:#dde3f0;
+  --text-dim:#8391ad; --radius:8px; --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'Inter',system-ui,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;}
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:52px;
+  display:flex;align-items:center;gap:16px;}
+header h1{font-size:13px;font-weight:600;}
+.steps{display:flex;gap:4px;margin-left:24px;}
+.step{padding:6px 14px;border-radius:99px;font-size:11px;font-weight:600;color:var(--text-dim);
+  background:var(--surface2);border:1px solid var(--border2);cursor:pointer;}
+.step.active{color:var(--accent);border-color:var(--accent);background:var(--accent-lo);}
+.step.done{color:var(--green);}
+main{padding:20px;max-width:1300px;margin:0 auto;}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
+.panel h2{font-size:14px;margin-bottom:4px;}
+.panel .sub{font-size:11px;color:var(--text-dim);margin-bottom:14px;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--muted);border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);}
+td{padding:7px 10px;border-bottom:1px solid var(--border);}
+.table-scroll{max-height:55vh;overflow-y:auto;}
+input[type=text],input[type=number],select{
+  background:var(--surface2);border:1px solid var(--border2);border-radius:5px;
+  padding:5px 8px;color:var(--text);font-size:12px;width:100%;outline:none;}
+input:focus,select:focus{border-color:var(--accent);}
+.amt{font-family:var(--mono);text-align:right;}
+.amt.pos{color:var(--green);} .amt.neg{color:var(--red);}
+.btn{background:var(--accent);border:none;border-radius:var(--radius);padding:9px 18px;
+  color:#fff;font-size:12px;font-weight:600;cursor:pointer;}
+.btn:hover{opacity:.88;} .btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn-sec{background:var(--surface2);border:1px solid var(--border2);color:var(--text-dim);
+  border-radius:var(--radius);padding:7px 12px;font-size:11px;cursor:pointer;}
+.btn-sec:hover{border-color:var(--accent);color:var(--text);}
+.row{display:flex;gap:10px;align-items:center;}
+.right{margin-left:auto;}
+.chip{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;}
+.chip.gst{background:var(--accent-lo);color:var(--accent);}
+.chip.nogst{background:var(--surface3);color:var(--text-dim);}
+.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+.stat{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;}
+.stat .v{font-size:18px;font-weight:700;font-family:var(--mono);}
+.stat .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:2px;}
+.group-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:12px;margin-bottom:8px;}
+.group-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.group-head .desc{font-size:12px;flex:1;}
+.group-head .count{font-size:10px;color:var(--muted);}
+.pnl-section h3{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
+  margin:14px 0 6px;}
+.pnl-line{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);}
+.pnl-total{display:flex;justify-content:space-between;padding:10px 0;font-size:13px;font-weight:700;
+  border-top:2px solid var(--border2);margin-top:6px;}
+.empty{color:var(--text-dim);font-size:12px;text-align:center;padding:30px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>DocParse <span style="color:var(--text-dim)">/ Workflow</span></h1>
+  <div class="steps">
+    <div class="step" data-step="approve">1 · Approve</div>
+    <div class="step" data-step="categorize">2 · Categorize</div>
+    <div class="step" data-step="gst">3 · GST Review</div>
+    <div class="step" data-step="pnl">4 · P&amp;L</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- STEP 1: APPROVE -->
+  <div class="panel" id="panel-approve">
+    <h2>Approval Screen</h2>
+    <div class="sub">Review every extracted transaction. Edit anything that looks wrong, then approve to lock it in.</div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Description</th><th>Page</th><th style="text-align:right">Amount</th></tr></thead>
+        <tbody id="approveBody"></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <span class="sub" id="approveCount" style="margin:0"></span>
+      <button class="btn right" id="approveBtn">Approve All &amp; Continue →</button>
+    </div>
+  </div>
+
+  <!-- STEP 2: CATEGORIZE -->
+  <div class="panel" id="panel-categorize" style="display:none">
+    <h2>Category Allocation</h2>
+    <div class="sub">Assign an ATO/Australian-accounting-standard category to each transaction, or allocate a whole group of similar transactions at once.</div>
+
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn-sec" id="toggleGroupView">Switch to Grouped View</button>
+      <span class="right sub" id="catProgress" style="margin:0"></span>
+    </div>
+
+    <div id="groupedView" style="display:none"></div>
+
+    <div id="flatView" class="table-scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Category</th></tr></thead>
+        <tbody id="categorizeBody"></tbody>
+      </table>
+    </div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn right" id="catContinueBtn">Continue to GST Review →</button>
+    </div>
+  </div>
+
+  <!-- STEP 3: GST -->
+  <div class="panel" id="panel-gst" style="display:none">
+    <h2>GST Review</h2>
+    <div class="sub">Editable: change an amount and its GST + net recalculate automatically based on the assigned category's GST treatment.</div>
+    <div class="summary-grid" id="gstSummaryGrid"></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Description</th><th>Category</th><th>GST?</th>
+          <th style="text-align:right">Amount</th><th style="text-align:right">GST</th><th style="text-align:right">Net</th></tr></thead>
+        <tbody id="gstBody"></tbody>
+      </table>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn right" id="gstContinueBtn">Approve GST &amp; Generate P&amp;L →</button>
+    </div>
+  </div>
+
+  <!-- STEP 4: P&L -->
+  <div class="panel" id="panel-pnl" style="display:none">
+    <h2>Profit &amp; Loss</h2>
+    <div class="sub">Generated from categorized, GST-exclusive (net) transaction amounts. Drawings/personal/capital/loan-principal items are excluded per standard treatment.</div>
+    <div id="pnlContent"></div>
+  </div>
+
+</main>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const statementId = params.get("statement_id");
+let categories = [];
+let transactions = [];
+let groupedMode = false;
+
+if (!statementId) {
+  document.body.innerHTML = '<div class="empty">No statement_id provided. Go back to the parser and click "Send to Workflow".</div>';
+  throw new Error("no statement_id");
+}
+
+function setStep(name) {
+  document.querySelectorAll(".step").forEach(s => s.classList.toggle("active", s.dataset.step === name));
+  ["approve","categorize","gst","pnl"].forEach(s =>
+    document.getElementById("panel-" + s).style.display = (s === name ? "" : "none"));
+}
+document.querySelectorAll(".step").forEach(s => s.addEventListener("click", () => loadStep(s.dataset.step)));
+
+function fmt(n) { n = n || 0; return (n < 0 ? "-$" : "$") + Math.abs(n).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function esc(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+async function loadCategories() {
+  if (categories.length) return categories;
+  categories = await (await fetch("/api/categories")).json();
+  return categories;
+}
+
+function categorySelect(selectedId, txnId) {
+  const opts = categories.map(c =>
+    `<option value="${c.id}" ${c.id===selectedId?"selected":""}>${esc(c.name)}${c.gst_applicable?" (GST)":""}</option>`).join("");
+  return `<select onchange="assignCategory(${txnId}, this.value)"><option value="">— Uncategorized —</option>${opts}</select>`;
+}
+
+// ── STEP 1: APPROVE ──────────────────────────────────────────────────────
+async function loadStep(step) {
+  setStep(step);
+  if (step === "approve") return loadApprove();
+  if (step === "categorize") return loadCategorize();
+  if (step === "gst") return loadGst();
+  if (step === "pnl") return loadPnl();
+}
+
+async function loadApprove() {
+  transactions = await (await fetch(`/api/statements/${statementId}/transactions`)).json();
+  document.getElementById("approveBody").innerHTML = transactions.map(t => `
+    <tr data-id="${t.id}">
+      <td><input type="text" value="${esc(t.date||"")}" onchange="editField(${t.id},'date',this.value)"/></td>
+      <td><input type="text" value="${esc(t.description||"")}" onchange="editField(${t.id},'description',this.value)"/></td>
+      <td>${t.source_page ?? "—"}</td>
+      <td><input type="number" step="0.01" style="text-align:right" value="${t.amount}" onchange="editField(${t.id},'amount',parseFloat(this.value))"/></td>
+    </tr>`).join("");
+  document.getElementById("approveCount").textContent = `${transactions.length} transactions`;
+}
+
+async function editField(tid, field, value) {
+  await fetch(`/api/transactions/${tid}`, {
+    method: "PATCH", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({[field]: value}),
+  });
+}
+
+document.getElementById("approveBtn").addEventListener("click", async () => {
+  await fetch(`/api/statements/${statementId}/approve`, { method: "POST" });
+  loadStep("categorize");
+});
+
+// ── STEP 2: CATEGORIZE ───────────────────────────────────────────────────
+async function loadCategorize() {
+  await loadCategories();
+  transactions = await (await fetch(`/api/statements/${statementId}/transactions`)).json();
+  renderFlatCategorize();
+  updateCatProgress();
+}
+
+function renderFlatCategorize() {
+  document.getElementById("categorizeBody").innerHTML = transactions.map(t => `
+    <tr data-id="${t.id}">
+      <td>${esc(t.date||"")}</td>
+      <td>${esc(t.description||"")}</td>
+      <td class="amt ${t.amount>=0?'pos':'neg'}">${fmt(t.amount)}</td>
+      <td>${categorySelect(t.category_id, t.id)}</td>
+    </tr>`).join("");
+}
+
+async function assignCategory(tid, categoryId) {
+  if (!categoryId) return;
+  await fetch(`/api/statements/${statementId}/categorize`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ transaction_ids: [tid], category_id: parseInt(categoryId) }),
+  });
+  const t = transactions.find(x => x.id === tid);
+  if (t) t.category_id = parseInt(categoryId);
+  updateCatProgress();
+}
+
+async function assignGroupCategory(ids, categoryId) {
+  if (!categoryId) return;
+  await fetch(`/api/statements/${statementId}/categorize`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ transaction_ids: ids, category_id: parseInt(categoryId) }),
+  });
+  ids.forEach(id => { const t = transactions.find(x => x.id === id); if (t) t.category_id = parseInt(categoryId); });
+  updateCatProgress();
+  loadGroupedView();
+}
+
+function updateCatProgress() {
+  const done = transactions.filter(t => t.category_id).length;
+  document.getElementById("catProgress").textContent = `${done} / ${transactions.length} categorized`;
+}
+
+document.getElementById("toggleGroupView").addEventListener("click", async () => {
+  groupedMode = !groupedMode;
+  document.getElementById("toggleGroupView").textContent = groupedMode ? "Switch to Flat View" : "Switch to Grouped View";
+  document.getElementById("groupedView").style.display = groupedMode ? "" : "none";
+  document.getElementById("flatView").style.display = groupedMode ? "none" : "";
+  if (groupedMode) loadGroupedView();
+});
+
+async function loadGroupedView() {
+  const groups = await (await fetch(`/api/statements/${statementId}/groups`)).json();
+  document.getElementById("groupedView").innerHTML = groups.map(g => `
+    <div class="group-card">
+      <div class="group-head">
+        <div class="desc">${esc(g.sample_description)} <span class="count">(${g.group_key})</span></div>
+        <span class="count">${g.count} txns · ${fmt(g.total)}</span>
+        ${categorySelect(null, null).replace('onchange="assignCategory(null, this.value)"',
+          `onchange="assignGroupCategory([${g.transaction_ids.join(",")}], this.value)"`)}
+      </div>
+    </div>`).join("") || '<div class="empty">No groups found.</div>';
+}
+
+document.getElementById("catContinueBtn").addEventListener("click", () => loadStep("gst"));
+
+// ── STEP 3: GST ───────────────────────────────────────────────────────────
+async function loadGst() {
+  const data = await (await fetch(`/api/statements/${statementId}/gst`)).json();
+  transactions = data.transactions;
+  renderGstSummary(data.summary);
+  document.getElementById("gstBody").innerHTML = transactions.map(t => `
+    <tr data-id="${t.id}">
+      <td>${esc(t.description||"")}</td>
+      <td>${esc(t.category_name||"Uncategorized")}</td>
+      <td><span class="chip ${t.gst_applicable?'gst':'nogst'}">${t.gst_applicable ? 'GST '+Math.round((t.gst_rate||0)*100)+'%' : 'No GST'}</span></td>
+      <td><input type="number" step="0.01" class="amt" value="${t.amount}" onchange="editGstAmount(${t.id}, this.value)"/></td>
+      <td class="amt" id="gstcell-${t.id}">${fmt(t.gst_amount)}</td>
+      <td class="amt" id="netcell-${t.id}">${fmt(t.net_amount)}</td>
+    </tr>`).join("");
+}
+
+function renderGstSummary(s) {
+  document.getElementById("gstSummaryGrid").innerHTML = `
+    <div class="stat"><div class="v">${fmt(s.gst_collected)}</div><div class="l">GST Collected (on income)</div></div>
+    <div class="stat"><div class="v">${fmt(s.gst_paid)}</div><div class="l">GST Paid (on expenses)</div></div>
+    <div class="stat"><div class="v" style="color:${s.net_gst_payable>=0?'var(--red)':'var(--green)'}">${fmt(s.net_gst_payable)}</div>
+      <div class="l">${s.net_gst_payable>=0 ? 'Net GST Payable to ATO' : 'Net GST Refund Due'}</div></div>
+    <div class="stat"><div class="v">${s.by_category.length}</div><div class="l">Categories Used</div></div>`;
+}
+
+async function editGstAmount(tid, value) {
+  const amount = parseFloat(value);
+  const res = await fetch(`/api/transactions/${tid}`, {
+    method: "PATCH", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ amount }),
+  });
+  const updated = await res.json();
+  document.getElementById(`gstcell-${tid}`).textContent = fmt(updated.gst_amount);
+  document.getElementById(`netcell-${tid}`).textContent = fmt(updated.net_amount);
+  const data = await (await fetch(`/api/statements/${statementId}/gst`)).json();
+  renderGstSummary(data.summary);
+}
+
+document.getElementById("gstContinueBtn").addEventListener("click", async () => {
+  await fetch(`/api/statements/${statementId}/finalize_gst`, { method: "POST" });
+  loadStep("pnl");
+});
+
+// ── STEP 4: P&L ───────────────────────────────────────────────────────────
+async function loadPnl() {
+  const pnl = await (await fetch(`/api/statements/${statementId}/pnl`)).json();
+  document.getElementById("pnlContent").innerHTML = `
+    <div class="pnl-section">
+      <h3>Income</h3>
+      ${pnl.income_lines.map(l => `<div class="pnl-line"><span>${esc(l.category)}</span><span class="amt">${fmt(l.amount)}</span></div>`).join("") || '<div class="empty">No income lines</div>'}
+      <div class="pnl-total"><span>Total Income</span><span>${fmt(pnl.total_income)}</span></div>
+    </div>
+    <div class="pnl-section">
+      <h3>Expenses</h3>
+      ${pnl.expense_lines.map(l => `<div class="pnl-line"><span>${esc(l.category)}</span><span class="amt">${fmt(l.amount)}</span></div>`).join("") || '<div class="empty">No expense lines</div>'}
+      <div class="pnl-total"><span>Total Expenses</span><span>${fmt(pnl.total_expense)}</span></div>
+    </div>
+    <div class="pnl-total" style="font-size:16px;border-top:2px solid var(--accent);margin-top:18px">
+      <span>Net Profit</span><span style="color:${pnl.net_profit>=0?'var(--green)':'var(--red)'}">${fmt(pnl.net_profit)}</span>
+    </div>`;
+}
+
+loadStep("approve");
+</script>
+</body>
+</html>
