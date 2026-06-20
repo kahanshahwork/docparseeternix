@@ -53,11 +53,11 @@ AI_TIMEOUT_SECONDS = 30
 # overrides a real vendor_memory hit. Extend freely whenever a new bucket is
 # added in vendor_memory.py SEMANTIC_BUCKETS; nothing else needs to change.
 BUCKET_TO_CATEGORY_HINT = {
-    "Food Delivery": "Meals & Entertainment",
-    "Ride Share / Taxi": "Travel & Vehicle",
+    "Food Delivery": "Food & Meals",
+    "Ride Share / Taxi": "Travel & Transport",
     "Bank Transfers": None,                        # too generic, needs AI/manual judgement
-    "Interest": "Interest Income",
-    "Subscriptions": "Subscriptions & Software",
+    "Interest": "Other Income",
+    "Subscriptions": "Office & Operating Expenses",
     "Merchant Settlement": "Sales / Trading Income",
     "BPAY": None,
     "Direct Debit": None,

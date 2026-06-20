@@ -138,45 +138,44 @@ class GSTOverride:
 
 GST_OVERRIDES: dict[tuple[str, str], GSTOverride] = {
 
-    # --- Rental Income ---
-    ("Rental Income", "REAL_ESTATE_RESIDENTIAL"): GSTOverride(
-        gst_applicable=False, gst_rate=0.0, input_taxed=True,
-        note="Residential rent is an input taxed supply under GST law.",
-    ),
-    ("Rental Income", "REAL_ESTATE_COMMERCIAL"): GSTOverride(
-        gst_applicable=True, gst_rate=0.10, input_taxed=False,
-        note="Commercial rent is a standard taxable supply.",
-    ),
-
-    # --- Sales / Service Income ---
-    ("Sales", "MEDICAL_HEALTH"): GSTOverride(
+    # --- Sales / Trading Income ---
+    ("Sales / Trading Income", "MEDICAL_HEALTH"): GSTOverride(
         gst_applicable=False, gst_rate=0.0, input_taxed=False,
         note="Most patient medical/health services are GST-free under the ATO's "
              "medical services exemption.",
     ),
-    ("Sales", "EDUCATION"): GSTOverride(
+    ("Sales / Trading Income", "EDUCATION"): GSTOverride(
         gst_applicable=False, gst_rate=0.0, input_taxed=False,
         note="Fees for a recognised/registered course are GST-free.",
     ),
-    ("Sales", "CHILDCARE"): GSTOverride(
+    ("Sales / Trading Income", "CHILDCARE"): GSTOverride(
         gst_applicable=False, gst_rate=0.0, input_taxed=False,
         note="Approved childcare services are GST-free.",
     ),
-    ("Sales", "EXPORT"): GSTOverride(
-        gst_applicable=False, gst_rate=0.0, input_taxed=False,
-        note="Goods/services exported outside Australia within the required "
-             "timeframe are GST-free.",
-    ),
-    ("Sales", "FINANCIAL_SERVICES"): GSTOverride(
+    ("Sales / Trading Income", "FINANCIAL_SERVICES"): GSTOverride(
         gst_applicable=False, gst_rate=0.0, input_taxed=True,
         note="Core financial supplies (lending, account fees, most insurance) "
-             "are input taxed, not GST-free — credits on related purchases "
-             "are restricted (denied input tax credits, partially recoverable "
-             "via the financial acquisitions threshold rules).",
+             "are input taxed -- credits on related purchases are restricted "
+             "(denied input tax credits, partially recoverable via the "
+             "financial acquisitions threshold rules).",
     ),
 
-    # --- Interest / Bank-related income or fees ---
-    ("Interest Income", "FINANCIAL_SERVICES"): GSTOverride(
+    # --- Rent / Lease Expense (note: this category as named covers expense
+    # side; if/when a client also records rental INCOME, add a dedicated
+    # "Rental Income" row to DEFAULT_CATEGORIES in category_master.py first --
+    # this override only applies to the existing expense category as a
+    # business renting commercial premises GST treatment check) ---
+    ("Rent / Lease Expense", "REAL_ESTATE_RESIDENTIAL"): GSTOverride(
+        gst_applicable=False, gst_rate=0.0, input_taxed=True,
+        note="If this client is the landlord and this row represents "
+             "residential rent received (not paid), it is input taxed -- "
+             "confirm direction before relying on this override; if it is "
+             "rent PAID as a tenant, the standard taxable default applies "
+             "instead and this override should not fire.",
+    ),
+
+    # --- Interest Income ---
+    ("Other Income", "FINANCIAL_SERVICES"): GSTOverride(
         gst_applicable=False, gst_rate=0.0, input_taxed=True,
         note="Interest is an input taxed financial supply.",
     ),
@@ -184,26 +183,28 @@ GST_OVERRIDES: dict[tuple[str, str], GSTOverride] = {
     # --- Insurance ---
     ("Insurance", "FINANCIAL_SERVICES"): GSTOverride(
         gst_applicable=False, gst_rate=0.0, input_taxed=True,
-        note="Most general insurance premiums for a financial services "
-             "business's own core supplies are input taxed; note this differs "
-             "from insurance as a purchased EXPENSE by other business types, "
-             "which is normally a taxable supply (standard 10% applies there).",
+        note="Insurance premiums tied to a financial services business's own "
+             "core supplies are input taxed; this differs from insurance as a "
+             "purchased EXPENSE by other business types, which is normally a "
+             "taxable supply (standard 10% applies there via the default).",
     ),
 
-    # --- Food/Groceries-type categories for hospitality and agriculture ---
-    ("Cost of Goods Sold", "AGRICULTURE"): GSTOverride(
+    # --- Office Supplies (food/grocery-adjacent items for hospitality/ag) ---
+    ("Office & Operating Expenses", "AGRICULTURE"): GSTOverride(
         gst_applicable=False, gst_rate=0.0, input_taxed=False,
         note="Many unprocessed/basic food products are GST-free at the "
              "wholesale/primary production stage; this is description-level "
-             "nuance — confidence should be capped lower and flagged for "
+             "nuance -- confidence should be capped lower and flagged for "
              "human review rather than blanket-applied.",
     ),
 
-    # --- Donations for NFPs ---
-    ("Donations Received", "NOT_FOR_PROFIT"): GSTOverride(
+    # --- Other Business Income (donations for NFPs) ---
+    ("Other Income", "NOT_FOR_PROFIT"): GSTOverride(
         gst_applicable=False, gst_rate=0.0, input_taxed=False,
         note="Genuine gifts/donations to an eligible NFP are outside the GST "
-             "system entirely (not a supply for consideration).",
+             "system entirely (not a supply for consideration) -- only "
+             "applies if this income row is actually a donation, not trading "
+             "income; flag for human review rather than blanket-applying.",
     ),
 }
 
