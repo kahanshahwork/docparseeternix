@@ -109,24 +109,53 @@ def _direction_mismatch(direction: str, pnl_group: str) -> bool:
     return False
 
 
+def _categories_for_direction(direction: str, categories: list[dict]) -> list[dict]:
+    """
+    Filters the Category Master down to only categories that are valid for
+    this transaction's direction, BEFORE the AI ever sees the list. This is
+    the primary fix: rather than letting the AI choose from every category
+    and catching a wrong-direction pick after the fact (still done as a
+    backstop via _direction_mismatch), we remove the invalid options
+    entirely so the AI structurally cannot make that mistake.
+
+    debit (money out)  -> Expense + Excluded categories only
+    credit (money in)  -> Income + Excluded categories only
+    unknown/missing direction -> no filtering (full list, safest fallback)
+    """
+    direction = (direction or "").lower()
+    if direction == "debit":
+        return [c for c in categories if c["pnl_group"] in ("Expense", "Excluded")]
+    if direction == "credit":
+        return [c for c in categories if c["pnl_group"] in ("Income", "Excluded")]
+    return categories
+
+
 # ---------------------------------------------------------------------------
 # Stage 1: Deterministic
 # ---------------------------------------------------------------------------
 
-def _try_deterministic(client_id: int, description: str) -> Optional[tuple[int, float, str]]:
+def _try_deterministic(client_id: int, description: str, direction: str) -> Optional[tuple[int, float, str]]:
     """Returns (category_id, confidence, source) or None if unresolved."""
 
-    # 1a. Vendor memory exact match -- already returns category_id directly
+    # 1a. Vendor memory exact match -- already returns category_id directly.
+    # Not direction-filtered here: it's a trusted learned per-client mapping,
+    # and the final _direction_mismatch guardrail in categorize_transaction()
+    # still catches it if a vendor's description is reused for both a charge
+    # and a refund under the same normalized pattern.
     category_id = vendor_memory.suggest_category(client_id, description)
     if category_id:
         return category_id, 0.95, "vendor_memory"
 
-    # 1b. Semantic bucket -> category name hint -> resolve to id
+    # 1b. Semantic bucket -> category name hint -> resolve to id.
+    # Direction-filtered: only accept the hint if its P&L group is actually
+    # valid for this transaction's direction, otherwise fall through to
+    # Stage 2 (AI) rather than returning a structurally wrong suggestion.
     bucket = vendor_memory.semantic_bucket(description)
     if bucket:
         hint_name = BUCKET_TO_CATEGORY_HINT.get(bucket)
         if hint_name:
-            for cat in list_categories():
+            valid_categories = _categories_for_direction(direction, list_categories())
+            for cat in valid_categories:
                 if cat["name"] == hint_name:
                     return cat["id"], 0.65, "semantic_bucket"
 
@@ -304,14 +333,20 @@ def categorize_transaction(
     raw_ai = None
 
     # --- Stage 1 ---
-    deterministic = _try_deterministic(client_id, description)
+    deterministic = _try_deterministic(client_id, description, direction)
     if deterministic:
         category_id, confidence, source = deterministic
     else:
         # --- Stage 2 ---
+        # Primary fix for the debit->Income bug: the AI only ever sees
+        # categories that are structurally valid for this transaction's
+        # direction, so it cannot pick a wrong-direction category even if
+        # it misreads the merchant/description context.
+        direction_filtered_categories = _categories_for_direction(direction, categories)
         business_type_label = next(b["label"] for b in BUSINESS_TYPES if b["code"] == business_type_code)
         ai_result = _try_ai(
-            description, amount, direction, business_type_label, categories, historical_examples,
+            description, amount, direction, business_type_label,
+            direction_filtered_categories, historical_examples,
         )
         if ai_result:
             category_id, confidence, source, raw_ai = ai_result
