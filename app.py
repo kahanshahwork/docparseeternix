@@ -5,6 +5,12 @@ This is the ONLY file that should change when you add a brand-new module
 (a new blueprint file). It should never grow business logic itself.
 """
 
+# MUST run before any other project imports -- core/category_engine.py reads
+# GROQ_API_KEY from os.environ at import time (module-level), not lazily, so
+# .env has to be loaded into the environment before that import happens.
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import Flask
 from detector import registry
 from core.db import init_db
