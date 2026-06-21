@@ -45,6 +45,58 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
+
+def call_groq_with_usage(messages: list[dict], max_tokens: int = 800) -> dict:
+    """
+    Used by the AI Categorize Chat page (routes/workflow_routes.py
+    /ai-chat). Separate from _call_groq()/_try_ai() used by the existing
+    single/batch categorization paths -- kept isolated so chat experiments
+    can't affect the tested categorization flow.
+
+    Returns a dict with the reply content plus REAL usage/rate-limit data
+    straight from Groq's response (token counts from the JSON body,
+    remaining-quota info from response headers) -- nothing here is
+    estimated or guessed:
+      {
+        "content": str | None,
+        "usage": {"prompt_tokens", "completion_tokens", "total_tokens"} | None,
+        "rate_limit": {"limit_requests", "remaining_requests",
+                        "limit_tokens", "remaining_tokens"} | None,
+        "error": str | None,
+      }
+
+    Note: Groq does NOT expose your daily request cap (RPD) in headers at
+    all -- only per-minute request/token remaining counts are available
+    this way. Daily usage is tracked separately via ai_usage_log in the DB.
+    """
+    if not GROQ_API_KEY:
+        return {"content": None, "usage": None, "rate_limit": None,
+                "error": "GROQ_API_KEY is not set."}
+
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    payload = {"model": GROQ_MODEL, "messages": messages, "temperature": 0.1, "max_tokens": max_tokens}
+
+    try:
+        resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=AI_TIMEOUT_SECONDS)
+        rate_limit = {
+            "limit_requests": resp.headers.get("x-ratelimit-limit-requests"),
+            "remaining_requests": resp.headers.get("x-ratelimit-remaining-requests"),
+            "limit_tokens": resp.headers.get("x-ratelimit-limit-tokens"),
+            "remaining_tokens": resp.headers.get("x-ratelimit-remaining-tokens"),
+        }
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "content": data["choices"][0]["message"]["content"],
+            "usage": data.get("usage"),
+            "rate_limit": rate_limit,
+            "error": None,
+        }
+    except requests.exceptions.RequestException as e:
+        return {"content": None, "usage": None, "rate_limit": None, "error": str(e)}
+    except (KeyError, IndexError) as e:
+        return {"content": None, "usage": None, "rate_limit": None, "error": f"Unexpected response shape: {e}"}
+
 AI_TIMEOUT_SECONDS = 30
 
 # Maps a vendor_memory.py semantic_bucket() label -> the category NAME (as it

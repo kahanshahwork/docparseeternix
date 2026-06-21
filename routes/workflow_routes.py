@@ -462,3 +462,123 @@ def quarters():
         q += " WHERE client_id = ?"
         params = (client_id,)
     return jsonify([dict(r) for r in conn.execute(q, params).fetchall()])
+
+
+# ── AI Categorize Chat (separate page, scoped to one statement) ────────────
+
+def _build_chat_system_prompt(conn, sid: int) -> str:
+    """Builds the auto-injected system context: business type, the fixed
+    category list, and every currently-uncategorized transaction in this
+    statement, formatted as the same plain tabular style the user
+    validated manually in the Groq playground (proven to outperform JSON)."""
+    client_id = get_client_id_for_statement(conn, sid)
+    business_type_label = "Unknown"
+    if client_id:
+        row = conn.execute("SELECT business_type FROM clients WHERE id = ?", (client_id,)).fetchone()
+        if row:
+            from core.business_types import BUSINESS_TYPES
+            business_type_label = next((b["label"] for b in BUSINESS_TYPES if b["code"] == row["business_type"]), "Unknown")
+
+    categories = category_master.list_categories()
+    cat_list_str = "\n".join(f'- "{c["name"]}"' for c in categories)
+
+    txns = conn.execute(
+        "SELECT * FROM transactions WHERE statement_id = ? AND category_id IS NULL", (sid,)
+    ).fetchall()
+    txn_lines = "\n".join(
+        f'{t["id"]}\t{t["date"] or ""}\t{t["description"]}\t{t["amount"]}\t'
+        f'{"DR" if t["amount"] < 0 else "CR"}'
+        for t in txns
+    )
+
+    return (
+        "You are a bookkeeping categorization assistant for an Australian "
+        "accounting firm, helping categorize bank transactions for GST BAS. "
+        f"Business type: {business_type_label}.\n\n"
+        "Stick to exactly these categories, never invent new ones, copy "
+        "names exactly:\n"
+        f"{cat_list_str}\n\n"
+        "A 'DR' transaction is a debit (money out, an expense) -- it must "
+        "map to an Expense or Excluded category, never Income. A 'CR' "
+        "transaction is a credit (money in, income) -- it must map to "
+        "Income or Excluded, never Expense.\n\n"
+        "Uncategorized transactions in this statement "
+        "(id, date, description, amount, direction):\n"
+        f"{txn_lines}\n\n"
+        "When the user asks you to categorize, respond with a numbered "
+        "list: id - category. Keep responses focused on this task."
+    )
+
+
+@workflow_bp.route("/statements/<int:sid>/ai-chat", methods=["POST"])
+def ai_chat(sid):
+    """
+    body: {messages: [{role: 'user'|'assistant', content: str}, ...]}
+    The system prompt (business context + fixed categories + uncategorized
+    transactions) is injected server-side automatically -- the frontend
+    only ever sends the user-visible conversation turns.
+
+    Returns the AI's reply plus REAL usage/rate-limit data from Groq for
+    the analytics panel. This endpoint only returns text -- it never
+    writes to the database. Applying any proposed categorization still
+    goes through the existing /categorize endpoint, same as every other
+    path in this app.
+    """
+    conn = get_db()
+    body = request.json or {}
+    chat_messages = body.get("messages", [])
+
+    system_prompt = _build_chat_system_prompt(conn, sid)
+    full_messages = [{"role": "system", "content": system_prompt}] + chat_messages
+
+    result = category_engine.call_groq_with_usage(full_messages, max_tokens=1500)
+
+    usage = result.get("usage") or {}
+    rl = result.get("rate_limit") or {}
+    conn.execute(
+        """INSERT INTO ai_usage_log
+           (statement_id, prompt_tokens, completion_tokens, total_tokens,
+            limit_requests, remaining_requests, limit_tokens, remaining_tokens)
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (sid, usage.get("prompt_tokens"), usage.get("completion_tokens"), usage.get("total_tokens"),
+         rl.get("limit_requests"), rl.get("remaining_requests"), rl.get("limit_tokens"), rl.get("remaining_tokens")),
+    )
+    conn.commit()
+
+    if result["error"]:
+        return jsonify({"error": result["error"]}), 502
+
+    return jsonify({"reply": result["content"], "usage": usage, "rate_limit": rl})
+
+
+@workflow_bp.route("/ai-usage/summary", methods=["GET"])
+def ai_usage_summary():
+    """Powers the analytics panel under the AI chat page. All numbers here
+    are either real totals from our own log table, or the most recent
+    real rate-limit snapshot Groq sent us -- nothing estimated."""
+    conn = get_db()
+    today_row = conn.execute(
+        """SELECT COUNT(*) requests_today, COALESCE(SUM(total_tokens),0) tokens_today
+           FROM ai_usage_log WHERE date(created_at) = date('now')"""
+    ).fetchone()
+    all_time_row = conn.execute(
+        """SELECT COUNT(*) requests_all_time, COALESCE(SUM(total_tokens),0) tokens_all_time
+           FROM ai_usage_log"""
+    ).fetchone()
+    latest = conn.execute(
+        """SELECT limit_requests, remaining_requests, limit_tokens, remaining_tokens, created_at
+           FROM ai_usage_log WHERE limit_requests IS NOT NULL
+           ORDER BY id DESC LIMIT 1"""
+    ).fetchone()
+
+    return jsonify({
+        "requests_today": today_row["requests_today"],
+        "tokens_today": today_row["tokens_today"],
+        "requests_all_time": all_time_row["requests_all_time"],
+        "tokens_all_time": all_time_row["tokens_all_time"],
+        "latest_rate_limit": dict(latest) if latest else None,
+        "note": "Groq does not expose your daily request cap (RPD) in response "
+                "headers -- 'requests_today' above is tracked locally from our "
+                "own call log, not from Groq. Per-minute remaining requests/tokens "
+                "in 'latest_rate_limit' ARE real values from Groq's last response.",
+    })

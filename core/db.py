@@ -104,6 +104,19 @@ CREATE TABLE IF NOT EXISTS audit_log (
     actor       TEXT,
     created_at  TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS ai_usage_log (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    statement_id        INTEGER,
+    prompt_tokens       INTEGER,
+    completion_tokens   INTEGER,
+    total_tokens        INTEGER,
+    limit_requests      INTEGER,   -- from Groq's x-ratelimit-limit-requests header
+    remaining_requests  INTEGER,   -- from Groq's x-ratelimit-remaining-requests header
+    limit_tokens        INTEGER,   -- from Groq's x-ratelimit-limit-tokens header
+    remaining_tokens     INTEGER,   -- from Groq's x-ratelimit-remaining-tokens header
+    created_at          TEXT DEFAULT (datetime('now'))
+);
 """
 
 

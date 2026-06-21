@@ -216,6 +216,7 @@ td { padding: 8px 12px; font-size: 12px; }
   <div class="nav-group">
     <div class="nav-label">Admin</div>
     <div class="nav-item" data-page="clients"><span class="ic">🏢</span> Clients</div>
+    <div class="nav-item" data-page="aichat"><span class="ic">💬</span> AI Chat</div>
   </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded yet</div>
 </aside>
@@ -438,6 +439,29 @@ td { padding: 8px 12px; font-size: 12px; }
     </div>
   </div>
 
+  <div class="page" id="page-aichat">
+    <div class="page-header">
+      <h1>AI Categorize Chat</h1>
+      <span class="sub" id="aiChatSub">Ask the AI to categorize the currently open statement's uncategorized transactions, in plain language.</span>
+    </div>
+    <div class="wf-content">
+      <div class="panel" style="display:flex; flex-direction:column; height:520px;">
+        <div id="chatMessages" style="flex:1; overflow-y:auto; padding:6px; display:flex; flex-direction:column; gap:10px;"></div>
+        <div style="display:flex; gap:8px; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
+          <input type="text" id="chatInput" placeholder="e.g. Categorize these for GST BAS, stick to the fixed categories"
+                 style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);">
+          <button class="btn" id="chatSendBtn">Send</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Usage Analytics</h2>
+        <div class="psub">Token counts and per-minute remaining quota come directly from Groq's API response — nothing here is estimated. Groq does not expose your daily request cap in headers, so "Requests Today" is tracked locally from our own call log.</div>
+        <div id="usageGrid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin-top:14px;"></div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <div class="modal-overlay" id="ambModal">
@@ -473,6 +497,7 @@ function goPage(name) {
   if (name === "gst") loadGst();
   if (name === "pnl") loadPnl();
   if (name === "clients") loadClients();
+  if (name === "aichat") loadAiChatPage();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
   item.addEventListener("click", () => { if (item.classList.contains("disabled")) return; goPage(item.dataset.page); });
@@ -952,10 +977,20 @@ function toggleGroupExpand(groupId) {
   loadGroupedView();
 }
 async function loadGroupedView() {
-  const data = await (await fetch(`/api/statements/${statementId}/groups`)).json();
-  document.getElementById("groupedView").innerHTML =
-    renderGroupSection("Debit (Money Out)", data.debit, "debit") +
-    renderGroupSection("Credit (Money In)", data.credit, "credit");
+  try {
+    const resp = await fetch(`/api/statements/${statementId}/groups`);
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
+    const data = await resp.json();
+    if (!data || !Array.isArray(data.debit) || !Array.isArray(data.credit)) {
+      throw new Error("Unexpected response shape from /groups -- is the Flask server running the latest code? Restart it (Ctrl+C, then re-run) after any backend file changes.");
+    }
+    document.getElementById("groupedView").innerHTML =
+      renderGroupSection("Debit (Money Out)", data.debit, "debit") +
+      renderGroupSection("Credit (Money In)", data.credit, "credit");
+  } catch (e) {
+    document.getElementById("groupedView").innerHTML =
+      `<div class="wf-empty" style="color:var(--red)">Could not load grouped view: ${esc(e.message)}</div>`;
+  }
 }
 
 document.getElementById("aiSuggestBtn").addEventListener("click", async () => {
@@ -964,6 +999,13 @@ document.getElementById("aiSuggestBtn").addEventListener("click", async () => {
   btn.textContent = "Thinking…"; btn.disabled = true;
   try {
     const resp = await fetch(`/api/statements/${statementId}/categorize/ai-batch`, { method: "POST" });
+    if (!resp.ok) {
+      const text = await resp.text();
+      if (text.trim().startsWith("<")) {
+        throw new Error(`Server returned ${resp.status} (an HTML error page, not JSON) -- this usually means the Flask server hasn't been restarted since this route was added. Stop it (Ctrl+C) and restart it.`);
+      }
+      throw new Error(text);
+    }
     const data = await resp.json();
     if (data.error) { alert(data.error); return; }
     aiSuggestions = {};
@@ -1110,6 +1152,93 @@ document.getElementById("addClientBtn").addEventListener("click", async () => {
     alert("Failed to add client: " + err.message);
   }
 });
+
+// ── AI Categorize Chat page ─────────────────────────────────────────────
+let chatHistory = [];  // [{role, content}, ...] -- sent to /ai-chat as-is
+
+function loadAiChatPage() {
+  const sub = document.getElementById("aiChatSub");
+  if (!statementId) {
+    sub.textContent = "No statement is currently open — go to Upload & Parse and send a statement to workflow first.";
+    document.getElementById("chatInput").disabled = true;
+    document.getElementById("chatSendBtn").disabled = true;
+  } else {
+    sub.textContent = `Chatting about Statement #${statementId}. Ask it to categorize, give it corrections, then apply via the normal Categorize page.`;
+    document.getElementById("chatInput").disabled = false;
+    document.getElementById("chatSendBtn").disabled = false;
+  }
+  loadUsageAnalytics();
+}
+
+function renderChatMessage(role, content) {
+  const wrap = document.getElementById("chatMessages");
+  const isUser = role === "user";
+  const bubble = document.createElement("div");
+  bubble.style.cssText = `align-self:${isUser ? "flex-end" : "flex-start"}; max-width:75%; padding:10px 14px; border-radius:10px; white-space:pre-wrap; font-size:13px; line-height:1.5; background:${isUser ? "var(--accent)" : "var(--surface)"}; color:${isUser ? "#fff" : "var(--text)"}; border:1px solid var(--border);`;
+  bubble.textContent = content;
+  wrap.appendChild(bubble);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+async function sendChatMessage() {
+  if (!statementId) return;
+  const input = document.getElementById("chatInput");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  chatHistory.push({ role: "user", content: text });
+  renderChatMessage("user", text);
+
+  const sendBtn = document.getElementById("chatSendBtn");
+  sendBtn.disabled = true; sendBtn.textContent = "…";
+  try {
+    const resp = await fetch(`/api/statements/${statementId}/ai-chat`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: chatHistory }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      renderChatMessage("assistant", `⚠ ${data.error}`);
+    } else {
+      chatHistory.push({ role: "assistant", content: data.reply });
+      renderChatMessage("assistant", data.reply);
+    }
+    loadUsageAnalytics();
+  } catch (e) {
+    renderChatMessage("assistant", `⚠ Request failed: ${e.message}`);
+  } finally {
+    sendBtn.disabled = false; sendBtn.textContent = "Send";
+  }
+}
+document.getElementById("chatSendBtn").addEventListener("click", sendChatMessage);
+document.getElementById("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChatMessage(); });
+
+function usageCard(label, value, sub) {
+  return `<div style="border:1px solid var(--border); border-radius:8px; padding:12px;">
+    <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;">${esc(label)}</div>
+    <div style="font-size:22px; font-weight:600; margin-top:4px;">${esc(String(value))}</div>
+    ${sub ? `<div style="font-size:11px; color:var(--muted); margin-top:2px;">${esc(sub)}</div>` : ""}
+  </div>`;
+}
+
+async function loadUsageAnalytics() {
+  try {
+    const data = await (await fetch("/api/ai-usage/summary")).json();
+    const rl = data.latest_rate_limit;
+    let html = "";
+    html += usageCard("Requests Today", data.requests_today, "tracked locally, not from Groq");
+    html += usageCard("Tokens Today", data.tokens_today, "real, from Groq response usage");
+    html += usageCard("Requests All-Time", data.requests_all_time);
+    html += usageCard("Tokens All-Time", data.tokens_all_time);
+    if (rl) {
+      html += usageCard("Remaining Requests (this minute)", rl.remaining_requests ?? "—", `limit: ${rl.limit_requests ?? "—"} per minute`);
+      html += usageCard("Remaining Tokens (this minute)", rl.remaining_tokens ?? "—", `limit: ${rl.limit_tokens ?? "—"} per minute`);
+    }
+    document.getElementById("usageGrid").innerHTML = html;
+  } catch (e) {
+    document.getElementById("usageGrid").innerHTML = `<div class="wf-empty">Could not load usage analytics: ${esc(e.message)}</div>`;
+  }
+}
 </script>
 </body>
 </html>
