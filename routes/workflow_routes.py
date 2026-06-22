@@ -582,3 +582,37 @@ def ai_usage_summary():
                 "own call log, not from Groq. Per-minute remaining requests/tokens "
                 "in 'latest_rate_limit' ARE real values from Groq's last response.",
     })
+
+
+# ── Raw AI Playground (zero injected context — pure passthrough to Groq) ───
+
+@workflow_bp.route("/ai-playground/chat", methods=["POST"])
+def ai_playground_chat():
+    """
+    body: {messages: [{role: 'user'|'assistant', content: str}, ...]}
+    NO system prompt, NO transaction data, NO category list, NO business
+    context is injected here -- whatever the frontend sends is exactly
+    what goes to Groq, nothing more. This exists purely so usage/token
+    behavior can be compared directly against the Groq playground with
+    no project-specific scaffolding in the way.
+    """
+    body = request.json or {}
+    chat_messages = body.get("messages", [])
+    result = category_engine.call_groq_with_usage(chat_messages, max_tokens=1500)
+
+    usage = result.get("usage") or {}
+    rl = result.get("rate_limit") or {}
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO ai_usage_log
+           (statement_id, prompt_tokens, completion_tokens, total_tokens,
+            limit_requests, remaining_requests, limit_tokens, remaining_tokens)
+           VALUES (NULL,?,?,?,?,?,?,?)""",
+        (usage.get("prompt_tokens"), usage.get("completion_tokens"), usage.get("total_tokens"),
+         rl.get("limit_requests"), rl.get("remaining_requests"), rl.get("limit_tokens"), rl.get("remaining_tokens")),
+    )
+    conn.commit()
+
+    if result["error"]:
+        return jsonify({"error": result["error"]}), 502
+    return jsonify({"reply": result["content"], "usage": usage, "rate_limit": rl})

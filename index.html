@@ -217,6 +217,7 @@ td { padding: 8px 12px; font-size: 12px; }
     <div class="nav-label">Admin</div>
     <div class="nav-item" data-page="clients"><span class="ic">🏢</span> Clients</div>
     <div class="nav-item" data-page="aichat"><span class="ic">💬</span> AI Chat</div>
+    <div class="nav-item" data-page="aiplayground"><span class="ic">🧪</span> AI Playground</div>
   </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded yet</div>
 </aside>
@@ -462,6 +463,23 @@ td { padding: 8px 12px; font-size: 12px; }
     </div>
   </div>
 
+  <div class="page" id="page-aiplayground">
+    <div class="page-header">
+      <h1>AI Playground</h1>
+      <span class="sub">Raw chat, zero injected context — nothing about clients, statements, or categories is sent. Type anything. Compare token usage directly against the Groq playground.</span>
+    </div>
+    <div class="wf-content">
+      <div class="panel" style="display:flex; flex-direction:column; height:520px;">
+        <div id="pgMessages" style="flex:1; overflow-y:auto; padding:6px; display:flex; flex-direction:column; gap:10px;"></div>
+        <div style="display:flex; gap:8px; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
+          <input type="text" id="pgInput" placeholder="Type anything — no project context is attached"
+                 style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);">
+          <button class="btn" id="pgSendBtn">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <div class="modal-overlay" id="ambModal">
@@ -498,6 +516,7 @@ function goPage(name) {
   if (name === "pnl") loadPnl();
   if (name === "clients") loadClients();
   if (name === "aichat") loadAiChatPage();
+  if (name === "aiplayground") { /* no setup needed -- fully standalone */ }
 }
 document.querySelectorAll(".nav-item").forEach(item => {
   item.addEventListener("click", () => { if (item.classList.contains("disabled")) return; goPage(item.dataset.page); });
@@ -1239,6 +1258,59 @@ async function loadUsageAnalytics() {
     document.getElementById("usageGrid").innerHTML = `<div class="wf-empty">Could not load usage analytics: ${esc(e.message)}</div>`;
   }
 }
+
+// ── AI Playground — raw chat, zero project context ──────────────────────
+let pgHistory = [];
+
+function pgRenderMessage(role, content, tokenInfo) {
+  const wrap = document.getElementById("pgMessages");
+  const isUser = role === "user";
+  const container = document.createElement("div");
+  container.style.cssText = `align-self:${isUser ? "flex-end" : "flex-start"}; max-width:75%;`;
+  const bubble = document.createElement("div");
+  bubble.style.cssText = `padding:10px 14px; border-radius:10px; white-space:pre-wrap; font-size:13px; line-height:1.5; background:${isUser ? "var(--accent)" : "var(--surface)"}; color:${isUser ? "#fff" : "var(--text)"}; border:1px solid var(--border);`;
+  bubble.textContent = content;
+  container.appendChild(bubble);
+  if (tokenInfo) {
+    const meta = document.createElement("div");
+    meta.style.cssText = "font-size:11px; color:var(--muted); margin-top:4px; text-align:right;";
+    meta.textContent = `prompt: ${tokenInfo.prompt_tokens} · completion: ${tokenInfo.completion_tokens} · total: ${tokenInfo.total_tokens} tokens`;
+    container.appendChild(meta);
+  }
+  wrap.appendChild(container);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+async function pgSendMessage() {
+  const input = document.getElementById("pgInput");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  pgHistory.push({ role: "user", content: text });
+  pgRenderMessage("user", text);
+
+  const sendBtn = document.getElementById("pgSendBtn");
+  sendBtn.disabled = true; sendBtn.textContent = "…";
+  try {
+    const resp = await fetch("/api/ai-playground/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: pgHistory }),
+    });
+    const data = await resp.json();
+    if (data.error) {
+      pgRenderMessage("assistant", `⚠ ${data.error}`);
+    } else {
+      pgHistory.push({ role: "assistant", content: data.reply });
+      pgRenderMessage("assistant", data.reply, data.usage);
+    }
+  } catch (e) {
+    pgRenderMessage("assistant", `⚠ Request failed: ${e.message}`);
+  } finally {
+    sendBtn.disabled = false; sendBtn.textContent = "Send";
+  }
+}
+document.getElementById("pgSendBtn").addEventListener("click", pgSendMessage);
+document.getElementById("pgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") pgSendMessage(); });
 </script>
 </body>
 </html>
