@@ -516,15 +516,8 @@ td { padding: 8px 12px; font-size: 12px; }
           <div id="aiCatNoTxns" style="display:none; margin-bottom:12px;">
             <div style="background:var(--green-lo); border:1px solid rgba(21,128,61,.25); border-radius:8px; padding:14px; font-size:12px; color:var(--green); text-align:center;">✓ All transactions are already categorized.</div>
           </div>
-          <div id="aiCatPromptBox" style="display:none;">
-            <div id="aiCatPromptText"
-              style="background:var(--surface2); border:1px solid var(--border2); border-radius:8px; padding:12px;
-                     font-family:var(--mono); font-size:11px; line-height:1.75; white-space:pre-wrap;
-                     color:var(--text); overflow-y:auto; max-height:calc(100vh - 280px);
-                     user-select:text; word-break:break-word;"></div>
-            <button class="btn" id="aiCatCopyBtn" style="margin-top:10px; width:100%;">📋 Copy Prompt to Clipboard</button>
-            <div id="aiCatCopyConfirm" style="display:none; text-align:center; font-size:11px; color:var(--green); margin-top:6px; font-weight:600;">✓ Copied! Paste into any AI now.</div>
-          </div>
+          <!-- promptBox: JS dynamically fills this with one card per batch -->
+          <div id="aiCatPromptBox" style="display:none;"></div>
         </div>
       </div>
 
@@ -1440,17 +1433,17 @@ document.getElementById("pgInput").addEventListener("keydown", (e) => { if (e.ke
 })();
 
 async function loadAiCategorizePage() {
-  const sub = document.getElementById('aiCatSub');
+  const sub      = document.getElementById('aiCatSub');
   const promptInfo = document.getElementById('aiCatPromptInfo');
-  const promptBox = document.getElementById('aiCatPromptBox');
-  const promptText = document.getElementById('aiCatPromptText');
-  const noTxns = document.getElementById('aiCatNoTxns');
-  const applyBtn = document.getElementById('aiCatApplyBtn');
+  const promptBox  = document.getElementById('aiCatPromptBox');
+  const noTxns     = document.getElementById('aiCatNoTxns');
+  const applyBtn   = document.getElementById('aiCatApplyBtn');
   const refreshBtn = document.getElementById('aiCatRefreshBtn');
   const resultPanel = document.getElementById('aiCatResultPanel');
 
   resultPanel.style.display = 'none';
   document.getElementById('aiCatPasteBox').value = '';
+  promptBox.innerHTML = '';
 
   if (!statementId) {
     sub.textContent = 'No statement loaded — go to Upload & Parse first.';
@@ -1471,7 +1464,7 @@ async function loadAiCategorizePage() {
 
   try {
     const resp = await fetch(`/api/statements/${statementId}/ai-categorize/prompt`);
-    if (!resp.ok) throw new Error('Server error — restart Flask if you just changed a .py file.');
+    if (!resp.ok) throw new Error('Server error — restart Flask after any .py file change.');
     const data = await resp.json();
 
     if (data.uncategorized_count === 0) {
@@ -1485,9 +1478,58 @@ async function loadAiCategorizePage() {
     }
 
     sub.textContent = `Statement #${statementId} · ${data.uncategorized_count} uncategorized · Business: ${data.business_type}`;
-    promptInfo.textContent = `${data.uncategorized_count} uncategorized transactions ready. Copy the prompt → paste into any AI → paste response back on the right.`;
+    const total = data.prompts.length;
+    promptInfo.textContent = total > 1
+      ? `${data.uncategorized_count} transactions split into ${total} batches of 150. Copy each batch separately.`
+      : `${data.uncategorized_count} transactions ready. Copy the prompt → paste into any AI → paste response back.`;
     promptInfo.style.display = 'block';
-    promptText.textContent = data.prompt;
+
+    // Build one prompt card per batch
+    promptBox.innerHTML = '';
+    data.prompts.forEach((batch, idx) => {
+      const card = document.createElement('div');
+      card.style.cssText = 'margin-bottom:14px; border:1px solid var(--border); border-radius:8px; overflow:hidden;';
+
+      // Batch header (only shown if >1 batch)
+      if (total > 1) {
+        const bh = document.createElement('div');
+        bh.style.cssText = 'padding:8px 12px; background:var(--surface2); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;';
+        bh.innerHTML = `<span style="font-size:11px; font-weight:700; color:var(--text);">${esc(batch.label)}</span>
+          <span style="font-size:10px; color:var(--muted);">Copy this batch separately</span>`;
+        card.appendChild(bh);
+      }
+
+      // Prompt text area (pre-formatted, read-only feel)
+      const pre = document.createElement('div');
+      pre.id = `aiCatPromptText_${idx}`;
+      pre.style.cssText = 'padding:12px; font-family:var(--mono); font-size:11px; line-height:1.75; white-space:pre-wrap; color:var(--text); background:var(--surface2); max-height:320px; overflow-y:auto; word-break:break-word; user-select:text;';
+      pre.textContent = batch.prompt;
+      card.appendChild(pre);
+
+      // Copy button
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.style.cssText = 'width:100%; border-radius:0; border-top:1px solid var(--border);';
+      btn.textContent = total > 1 ? `📋 Copy Batch ${batch.batch_num} to Clipboard` : '📋 Copy Prompt to Clipboard';
+      const confirmEl = document.createElement('div');
+      confirmEl.style.cssText = 'display:none; text-align:center; font-size:11px; color:var(--green); padding:5px 0; background:var(--green-lo);';
+      confirmEl.textContent = '✓ Copied! Paste into any AI now.';
+      btn.addEventListener('click', async () => {
+        const text = pre.textContent;
+        try { await navigator.clipboard.writeText(text); }
+        catch {
+          const ta = document.createElement('textarea');
+          ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+        }
+        confirmEl.style.display = 'block';
+        setTimeout(() => { confirmEl.style.display = 'none'; }, 3000);
+      });
+      card.appendChild(btn);
+      card.appendChild(confirmEl);
+      promptBox.appendChild(card);
+    });
+
     promptBox.style.display = 'block';
     noTxns.style.display = 'none';
     applyBtn.disabled = false;
@@ -1498,28 +1540,6 @@ async function loadAiCategorizePage() {
     promptInfo.style.display = 'block';
   }
 }
-
-// Copy prompt to clipboard
-document.getElementById("aiCatCopyBtn").addEventListener("click", async () => {
-  const text = document.getElementById("aiCatPromptText").textContent;
-  const confirm = document.getElementById("aiCatCopyConfirm");
-  try {
-    await navigator.clipboard.writeText(text);
-    confirm.style.display = "block";
-    setTimeout(() => { confirm.style.display = "none"; }, 3000);
-  } catch (e) {
-    // Fallback for non-https
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-    confirm.style.display = "block";
-    setTimeout(() => { confirm.style.display = "none"; }, 3000);
-  }
-});
 
 // Refresh prompt
 document.getElementById("aiCatRefreshBtn").addEventListener("click", loadAiCategorizePage);

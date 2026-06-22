@@ -588,15 +588,52 @@ def ai_usage_summary():
 
 # ── AI Categorize Page — prompt generation + paste-back apply ────────────────
 
+# ─── Australian vendor hints ────────────────────────────────────────────────
+# Injected once into every prompt — ~200 tokens, dramatically reduces misclassification
+# of well-known AU brands.  Sea World is a theme park, Telstra is telco, etc.
+_AU_VENDOR_HINTS = """
+Australian vendor reference (strong hints — use these when description matches):
+TRAVEL & TRANSPORT: Uber, Ola, DiDi, 13Cabs, Silver Top, Cabcharge, Qantas, Virgin Australia, Jetstar, Rex Airlines, Hertz, Avis, Budget Car Rental, Europcar, Thrifty, GoGet, Translink, Opal, Myki, Metro Trains, Sydney Trains, Yarra Trams, Transperth, Adelaide Metro → Travel & Vehicle
+THEME PARKS & ENTERTAINMENT (leisure, NOT food): Sea World, Movie World, Wet'n'Wild, Dreamworld, WhiteWater World, Luna Park, Taronga Zoo, Melbourne Zoo, Wildlife Sydney, SEALIFE Aquarium, Madame Tussauds, Timezone, Strike Bowling, Event Cinemas, Hoyts, Village Cinemas, Palace Cinemas → Travel & Vehicle (or Office & Operating Expenses if a business event)
+GROCERIES (Food & Meals): Woolworths, Coles, IGA, ALDI, Costco, Harris Farm, Foodland, Drakes, Ritchies → Food & Meals
+OFFICE & STATIONERY: Officeworks, Staples → Office & Operating Expenses
+TELCO: Telstra, Optus, Vodafone, TPG, iiNet, Aussie Broadband, Belong → Office & Operating Expenses
+UTILITIES: AGL, Origin Energy, EnergyAustralia, Red Energy, Alinta Energy, Ergon, Ausgrid → Office & Operating Expenses
+INSURANCE: NRMA, AAMI, Allianz, QBE, CGU, Budget Direct, GIO, RAA, RAC, RACQ, RACV, Medibank, Bupa, HCF, NIB, HBF → Insurance
+BANK FEES: any "account fee", "overdrawn fee", "dishonour fee", "monthly fee", "card fee", "bpay fee" — only if it is a DR (debit). A CR at a bank is income or a transfer, never a fee.
+PROFESSIONAL: MYOB, Xero, QuickBooks, Reckon, law firms, barristers, consultants → Professional / Contractor Fees
+""".strip()
+
+import re as _re
+
+def _clean_description(desc: str) -> str:
+    """
+    Remove NAB-style dot-padding (e.g. 'Sea World Resort.......... 110.00')
+    and collapse multiple spaces. Bank statement formatting noise only.
+    """
+    if not desc:
+        return ""
+    # Remove trailing dot sequences (3+ dots) and everything after them on the same token
+    cleaned = _re.sub(r'\.{3,}.*$', '', desc)
+    # Collapse whitespace
+    cleaned = _re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+
+BATCH_SIZE = 150   # max transactions per prompt batch
+
 @workflow_bp.route("/statements/<int:sid>/ai-categorize/prompt", methods=["GET"])
 def ai_categorize_prompt(sid):
     """
-    Returns all the data needed for the AI Categorize page:
-      - the ready-to-copy plain-text prompt (categories + all uncategorized txns)
-      - the category list (for the parser to validate names)
-      - uncategorized transaction count
-    The prompt format is the proven plain-tabular style (validated in Groq playground).
-    No AI call is made here — this is purely prompt generation.
+    Returns prompt data for the AI Categorize page.
+    If > BATCH_SIZE uncategorized transactions exist, returns multiple prompt batches.
+    Each batch uses:
+      - Real transaction_id labels (e.g. nab_0001)
+      - Cleaned descriptions (NAB dot-padding stripped)
+      - Date-ordered rows
+      - Australian vendor hints section
+      - Strict direction rules per category
+    No AI call is made here.
     """
     conn = get_db()
     client_id = get_client_id_for_statement(conn, sid)
@@ -611,57 +648,96 @@ def ai_categorize_prompt(sid):
 
     categories = category_master.list_categories()
     cat_names = [c["name"] for c in categories]
-    cat_list_str = "\n".join(f"- {name}" for name in cat_names)
 
+    # Split categories by direction for the strict rules section
+    income_cats  = [c["name"] for c in categories if c.get("pnl_group") == "Income"]
+    expense_cats = [c["name"] for c in categories if c.get("pnl_group") == "Expense"]
+    excl_cats    = [c["name"] for c in categories if c.get("pnl_group") not in ("Income", "Expense")]
+
+    cat_list_str = "\n".join(f"  - {n}" for n in cat_names)
+
+    # Order by date ASC, then by DB id to break ties — ensures chronological sequence
     txns = conn.execute(
-        "SELECT * FROM transactions WHERE statement_id = ? AND category_id IS NULL ORDER BY date",
+        """SELECT * FROM transactions
+           WHERE statement_id = ? AND category_id IS NULL
+           ORDER BY date ASC, id ASC""",
         (sid,)
     ).fetchall()
 
     if not txns:
         return jsonify({
-            "prompt": "",
+            "prompts": [],
             "categories": cat_names,
             "uncategorized_count": 0,
             "message": "No uncategorized transactions — nothing to do."
         })
 
-    # Plain tabular format — use transaction_id (real parser ID e.g. nab001) not DB row id
-    rows_list = []
-    txn_id_labels = []  # preserve order for example
+    # Build clean row list once
+    all_rows = []
     for t in txns:
         tid_label = t["transaction_id"] or str(t["id"])
-        txn_id_labels.append(tid_label)
         direction = "DR" if t["amount"] < 0 else "CR"
-        rows_list.append(
-            f'{tid_label}\t{t["date"] or ""}\t{t["description"]}\t{abs(t["amount"]):.2f}\t{direction}'
+        clean_desc = _clean_description(t["description"])
+        all_rows.append({
+            "tid": tid_label,
+            "date": t["date"] or "",
+            "desc": clean_desc,
+            "amount": abs(t["amount"]),
+            "dir": direction,
+        })
+
+    # Split into batches of BATCH_SIZE
+    batches = [all_rows[i:i+BATCH_SIZE] for i in range(0, len(all_rows), BATCH_SIZE)]
+    total_batches = len(batches)
+
+    def build_prompt(batch, batch_num, total):
+        header = "ID\tDate\tDescription\tAmount\tDR/CR"
+        rows_text = "\n".join(
+            f'{r["tid"]}\t{r["date"]}\t{r["desc"]}\t{r["amount"]:.2f}\t{r["dir"]}'
+            for r in batch
         )
-    header = "ID\tDate\tDescription\tAmount\tDR/CR"
-    rows = "\n".join(rows_list)
+        batch_label = f" (Batch {batch_num}/{total})" if total > 1 else ""
+        example_ids = [r["tid"] for r in batch[:3]]
+        example_cats = ["Travel & Vehicle", "Salary & Wages", "Sales / Trading Income"]
+        example_lines = "\n".join(
+            f"{eid}: {ecat}" for eid, ecat in zip(example_ids, example_cats)
+        )
+        return (
+            f"You are an Australian bookkeeping assistant{batch_label}.\n"
+            f"Business type: {business_type_label}\n\n"
+            f"=== CATEGORIES (use EXACT names, case-sensitive) ===\n"
+            f"{cat_list_str}\n\n"
+            f"=== DIRECTION RULES (HARD — never break these) ===\n"
+            f"DR (debit, money OUT) → ONLY these groups: Expense or Excluded\n"
+            f"  Expense: {', '.join(expense_cats)}\n"
+            f"  Excluded: {', '.join(excl_cats)}\n"
+            f"CR (credit, money IN) → ONLY these groups: Income or Excluded\n"
+            f"  Income: {', '.join(income_cats)}\n"
+            f"  Excluded: {', '.join(excl_cats)}\n"
+            f"NEVER assign an Income category to a DR row. NEVER assign an Expense category to a CR row.\n\n"
+            f"=== AUSTRALIAN VENDOR HINTS ===\n"
+            f"{_AU_VENDOR_HINTS}\n\n"
+            f"=== TRANSACTIONS{batch_label} ===\n"
+            f"{header}\n"
+            f"{rows_text}\n\n"
+            f"=== YOUR RESPONSE ===\n"
+            f"Output ONLY one line per transaction in this exact format, nothing else:\n"
+            f"{example_lines}"
+        )
 
-    # Build example lines using real IDs from this statement
-    example_cats = ["Travel & Vehicle", "Salary & Wages", "Sales / Trading Income"]
-    example_lines = "\n".join(
-        f"{eid}: {ecat}" for eid, ecat in zip(txn_id_labels[:3], example_cats)
-    )
-
-    prompt = (
-        f"You are an Australian bookkeeping assistant. Business type: {business_type_label}.\n\n"
-        "Categorize each transaction below using ONLY these exact categories (copy names exactly):\n"
-        f"{cat_list_str}\n\n"
-        "Rules:\n"
-        "- DR (debit, money out) → Expense or Excluded categories only\n"
-        "- CR (credit, money in) → Income or Excluded categories only\n"
-        "- If unsure, use: Uncategorized\n\n"
-        "Transactions:\n"
-        f"{header}\n"
-        f"{rows}\n\n"
-        "Respond ONLY in this format — one line per transaction, ID then colon then category, nothing else:\n"
-        f"{example_lines}"
-    )
+    prompts = [
+        {
+            "batch_num": i + 1,
+            "total_batches": total_batches,
+            "count": len(batch),
+            "label": f"Batch {i+1} of {total_batches} ({len(batch)} transactions)" if total_batches > 1 else f"{len(batch)} transactions",
+            "prompt": build_prompt(batch, i + 1, total_batches),
+        }
+        for i, batch in enumerate(batches)
+    ]
 
     return jsonify({
-        "prompt": prompt,
+        "prompts": prompts,
         "categories": cat_names,
         "uncategorized_count": len(txns),
         "business_type": business_type_label
