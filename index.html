@@ -35,7 +35,18 @@ html, body { height: 100%; overflow: hidden; }
 *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
 body { font-family: var(--sans); background: var(--bg); color: var(--text); display: flex; }
 
-.app-sidebar { width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; height: 100%; }
+.app-sidebar { width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; height: 100%; transition: width .2s ease; overflow: hidden; }
+.app-sidebar.collapsed { width: 48px; }
+.app-sidebar.collapsed .nav-label,
+.app-sidebar.collapsed .nav-item span:not(.step-num):not(.ic),
+.app-sidebar.collapsed .sidebar-footer,
+.app-sidebar.collapsed .app-logo .name,
+.app-sidebar.collapsed .app-logo .sub { display: none; }
+.app-sidebar.collapsed .nav-item { justify-content: center; padding: 9px 6px; }
+.app-sidebar.collapsed .nav-item .ic { width: auto; }
+.app-sidebar.collapsed .app-logo { justify-content: center; padding: 14px 8px; }
+.sidebar-toggle { position: absolute; top: 16px; right: -12px; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 20; font-size: 10px; color: var(--muted); box-shadow: 0 1px 4px rgba(0,0,0,.08); transition: color .15s; }
+.sidebar-toggle:hover { color: var(--accent); border-color: var(--accent); }
 .app-logo { padding: 18px 18px 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
 .app-logo .mark { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; }
 .app-logo .name { font-size: 13px; font-weight: 700; }
@@ -71,7 +82,10 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .parse-layout { flex: 1; display: flex; overflow: hidden; min-height: 0; }
-.parse-sidebar { width: 300px; background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; }
+.parse-sidebar { width: 300px; background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; flex-shrink: 0; transition: width .2s ease; position: relative; }
+.parse-sidebar.collapsed { width: 0; overflow: hidden; }
+.parse-sidebar-toggle { position: absolute; top: 12px; right: -14px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 10; font-size: 10px; color: var(--muted); box-shadow: 0 1px 4px rgba(0,0,0,.1); transition: color .15s; }
+.parse-sidebar-toggle:hover { color: var(--accent); border-color: var(--accent); }
 .sb-section { padding: 16px; border-bottom: 1px solid var(--border); }
 .sb-label { font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
 .drop-zone { border: 1.5px dashed var(--border2); border-radius: var(--radius); padding: 20px 12px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; }
@@ -137,8 +151,8 @@ td { padding: 8px 12px; font-size: 12px; }
 .empty-state h2 { font-size: 16px; color: var(--text-dim); }
 .empty-state p { font-size: 12px; text-align: center; max-width: 280px; }
 
-.pdf-panel { width: var(--pdf-w); background: var(--surface); border-left: 1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; position:relative; }
-.pdf-panel.closed { width: 0 !important; overflow: hidden; }
+.pdf-panel { width: 480px; min-width: 280px; max-width: 580px; background: var(--surface); border-left: 1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow:hidden; position:relative; }
+.pdf-panel.closed { width: 0 !important; min-width: 0; overflow: hidden; }
 .pdf-resize-handle { position:absolute; left:-3px; top:0; bottom:0; width:6px; cursor:col-resize; z-index:5; }
 .pdf-resize-handle:hover, .pdf-resize-handle.dragging { background: var(--accent); opacity: .35; }
 .pdf-header { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
@@ -197,28 +211,29 @@ td { padding: 8px 12px; font-size: 12px; }
 </head>
 <body>
 
-<aside class="app-sidebar">
-  <div class="app-logo">
-    <div class="mark">D</div>
-    <div>
-      <div class="name">DocParse</div>
-      <div class="sub">Bank Statement Workbench</div>
+<aside class="app-sidebar" id="appSidebar">
+  <div style="position:relative; flex-shrink:0;">
+    <div class="app-logo">
+      <div class="mark">D</div>
+      <div>
+        <div class="name">DocParse</div>
+        <div class="sub">Bank Statement Workbench</div>
+      </div>
     </div>
+    <div class="sidebar-toggle" id="sidebarToggle" title="Collapse sidebar">&#8249;</div>
   </div>
   <div class="nav-group">
     <div class="nav-label">Pipeline</div>
-    <div class="nav-item active" data-page="parse"><span class="step-num">1</span><span class="ic">📤</span> Upload &amp; Parse</div>
-    <div class="nav-item disabled" data-page="approve"><span class="step-num">2</span><span class="ic">✅</span> Approve</div>
-    <div class="nav-item disabled" data-page="categorize"><span class="step-num">3</span><span class="ic">🏷️</span> Categorize</div>
-    <div class="nav-item disabled" data-page="gst"><span class="step-num">4</span><span class="ic">💰</span> GST Review</div>
-    <div class="nav-item disabled" data-page="pnl"><span class="step-num">5</span><span class="ic">📊</span> Profit &amp; Loss</div>
+    <div class="nav-item active" data-page="parse"><span class="step-num">1</span><span class="ic" title="Upload &amp; Parse">↑</span> Upload &amp; Parse</div>
+    <div class="nav-item disabled" data-page="approve"><span class="step-num">2</span><span class="ic" title="Approve">✓</span> Approve</div>
+    <div class="nav-item disabled" data-page="categorize"><span class="step-num">3</span><span class="ic" title="Categorize">#</span> Categorize</div>
+    <div class="nav-item disabled" data-page="gst"><span class="step-num">4</span><span class="ic" title="GST Review">%</span> GST Review</div>
+    <div class="nav-item disabled" data-page="pnl"><span class="step-num">5</span><span class="ic" title="Profit &amp; Loss">~</span> Profit &amp; Loss</div>
   </div>
   <div class="nav-group">
-    <div class="nav-label">Admin</div>
-    <div class="nav-item" data-page="clients"><span class="ic">🏢</span> Clients</div>
-    <div class="nav-item" data-page="aicategorize"><span class="ic">🤖</span> AI Categorize</div>
-    <div class="nav-item" data-page="aichat"><span class="ic">💬</span> AI Chat</div>
-    <div class="nav-item" data-page="aiplayground"><span class="ic">🧪</span> AI Playground</div>
+    <div class="nav-label">Tools</div>
+    <div class="nav-item" data-page="clients"><span class="ic" title="Clients">Co</span> Clients</div>
+    <div class="nav-item" data-page="aicategorize"><span class="ic" title="AI Categorize">AI</span> AI Categorize</div>
   </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded yet</div>
 </aside>
@@ -227,12 +242,13 @@ td { padding: 8px 12px; font-size: 12px; }
 
   <div class="page active" id="page-parse">
     <div class="parse-layout">
-      <aside class="parse-sidebar">
+      <aside class="parse-sidebar" id="parseSidebar">
+        <div class="parse-sidebar-toggle" id="parseSidebarToggle" title="Collapse panel">&#8249;</div>
         <div class="sb-section">
           <div class="sb-label">Upload</div>
           <div class="error-box" id="errorBox"></div>
           <div class="drop-zone" id="dropZone">
-            <div class="drop-icon">📂</div>
+            <div class="drop-icon" style="font-size:28px; letter-spacing:-1px; opacity:.4; font-family:var(--mono); color:var(--accent);">↑</div>
             <div class="drop-hint"><strong>Click or drop</strong> a bank statement PDF here</div>
           </div>
           <input type="file" id="fileInput" accept=".pdf,.zip" style="display:none"/>
@@ -282,7 +298,7 @@ td { padding: 8px 12px; font-size: 12px; }
 
       <div class="table-panel">
         <div class="empty-state" id="emptyState">
-          <div class="empty-icon">📊</div>
+          <div class="empty-icon" style="font-size:36px; font-family:var(--mono); opacity:.25; color:var(--accent);">~/</div>
           <h2>No data yet</h2>
           <p>Upload a bank statement PDF to get started. The parser will auto-detect the bank and format.</p>
         </div>
@@ -294,7 +310,7 @@ td { padding: 8px 12px; font-size: 12px; }
             <option value="dr">Debits only</option>
           </select>
           <span class="row-count" id="rowCount"></span>
-          <button class="pdf-toggle" id="pdfToggle">📄 PDF View</button>
+          <button class="pdf-toggle" id="pdfToggle">PDF View</button>
           <button class="btn-sec" id="exportBtn">⬇ CSV</button>
           <button class="btn" id="workflowBtn">→ Send to Workflow</button>
         </div>
@@ -363,7 +379,6 @@ td { padding: 8px 12px; font-size: 12px; }
       <h1>Category Allocation</h1>
       <span class="sub" id="catProgress"></span>
       <div class="right">
-        <button class="btn-sec" id="aiSuggestBtn">✨ AI Suggest All</button>
         <button class="btn-sec" id="toggleGroupView">Switch to Grouped View</button>
         <button class="btn" id="catContinueBtn">Continue to GST Review →</button>
       </div>
@@ -436,46 +451,6 @@ td { padding: 8px 12px; font-size: 12px; }
             <thead><tr><th>Name</th><th>Business Type</th><th>Created</th></tr></thead>
             <tbody id="clientsBody"></tbody>
           </table>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="page" id="page-aichat">
-    <div class="page-header">
-      <h1>AI Categorize Chat</h1>
-      <span class="sub" id="aiChatSub">Ask the AI to categorize the currently open statement's uncategorized transactions, in plain language.</span>
-    </div>
-    <div class="wf-content">
-      <div class="panel" style="display:flex; flex-direction:column; height:520px;">
-        <div id="chatMessages" style="flex:1; overflow-y:auto; padding:6px; display:flex; flex-direction:column; gap:10px;"></div>
-        <div style="display:flex; gap:8px; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
-          <input type="text" id="chatInput" placeholder="e.g. Categorize these for GST BAS, stick to the fixed categories"
-                 style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);">
-          <button class="btn" id="chatSendBtn">Send</button>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2>Usage Analytics</h2>
-        <div class="psub">Token counts and per-minute remaining quota come directly from Groq's API response — nothing here is estimated. Groq does not expose your daily request cap in headers, so "Requests Today" is tracked locally from our own call log.</div>
-        <div id="usageGrid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin-top:14px;"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="page" id="page-aiplayground">
-    <div class="page-header">
-      <h1>AI Playground</h1>
-      <span class="sub">Raw chat, zero injected context — nothing about clients, statements, or categories is sent. Type anything. Compare token usage directly against the Groq playground.</span>
-    </div>
-    <div class="wf-content">
-      <div class="panel" style="display:flex; flex-direction:column; height:520px;">
-        <div id="pgMessages" style="flex:1; overflow-y:auto; padding:6px; display:flex; flex-direction:column; gap:10px;"></div>
-        <div style="display:flex; gap:8px; margin-top:10px; border-top:1px solid var(--border); padding-top:10px;">
-          <input type="text" id="pgInput" placeholder="Type anything — no project context is attached"
-                 style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text);">
-          <button class="btn" id="pgSendBtn">Send</button>
         </div>
       </div>
     </div>
@@ -598,6 +573,30 @@ let groupedMode = false;
 function esc(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 function fmt(n){ n = n||0; return (n<0?"-$":"$") + Math.abs(n).toLocaleString("en-AU",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 
+// ── Sidebar collapse ─────────────────────────────────────────────────────────
+(function() {
+  const sb = document.getElementById('appSidebar');
+  const tog = document.getElementById('sidebarToggle');
+  if (!sb || !tog) return;
+  tog.addEventListener('click', () => {
+    sb.classList.toggle('collapsed');
+    tog.innerHTML = sb.classList.contains('collapsed') ? '&#8250;' : '&#8249;';
+    tog.title = sb.classList.contains('collapsed') ? 'Expand sidebar' : 'Collapse sidebar';
+  });
+})();
+
+// ── Parse sidebar collapse ────────────────────────────────────────────────────
+(function() {
+  const ps = document.getElementById('parseSidebar');
+  const tog = document.getElementById('parseSidebarToggle');
+  if (!ps || !tog) return;
+  tog.addEventListener('click', () => {
+    ps.classList.toggle('collapsed');
+    tog.innerHTML = ps.classList.contains('collapsed') ? '&#8250;' : '&#8249;';
+    tog.style.right = ps.classList.contains('collapsed') ? '-28px' : '-14px';
+  });
+})();
+
 function goPage(name) {
   document.querySelectorAll(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.page === name));
   document.querySelectorAll(".page").forEach(p => p.classList.toggle("active", p.id === "page-" + name));
@@ -606,8 +605,6 @@ function goPage(name) {
   if (name === "gst") loadGst();
   if (name === "pnl") loadPnl();
   if (name === "clients") loadClients();
-  if (name === "aichat") loadAiChatPage();
-  if (name === "aiplayground") { /* no setup needed -- fully standalone */ }
   if (name === "aicategorize") loadAiCategorizePage();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
@@ -1104,33 +1101,7 @@ async function loadGroupedView() {
   }
 }
 
-document.getElementById("aiSuggestBtn").addEventListener("click", async () => {
-  const btn = document.getElementById("aiSuggestBtn");
-  const original = btn.textContent;
-  btn.textContent = "Thinking…"; btn.disabled = true;
-  try {
-    const resp = await fetch(`/api/statements/${statementId}/categorize/ai-batch`, { method: "POST" });
-    if (!resp.ok) {
-      const text = await resp.text();
-      if (text.trim().startsWith("<")) {
-        throw new Error(`Server returned ${resp.status} (an HTML error page, not JSON) -- this usually means the Flask server hasn't been restarted since this route was added. Stop it (Ctrl+C) and restart it.`);
-      }
-      throw new Error(text);
-    }
-    const data = await resp.json();
-    if (data.error) { alert(data.error); return; }
-    aiSuggestions = {};
-    Object.entries(data).forEach(([tid, s]) => { aiSuggestions[parseInt(tid)] = s; });
-    const count = Object.values(aiSuggestions).filter(s => s.category_id).length;
-    btn.textContent = `✨ ${count} suggestions ready`;
-    if (groupedMode) loadGroupedView(); else renderFlatCategorize();
-  } catch (e) {
-    alert("AI suggestion request failed: " + e.message);
-  } finally {
-    btn.disabled = false;
-    setTimeout(() => { btn.textContent = original; }, 3000);
-  }
-});
+// AI Suggest All removed — use AI Categorize page instead
 
 document.getElementById("catContinueBtn").addEventListener("click", () => { markDone("categorize"); goPage("gst"); });
 
@@ -1263,146 +1234,6 @@ document.getElementById("addClientBtn").addEventListener("click", async () => {
     alert("Failed to add client: " + err.message);
   }
 });
-
-// ── AI Categorize Chat page ─────────────────────────────────────────────
-let chatHistory = [];  // [{role, content}, ...] -- sent to /ai-chat as-is
-
-function loadAiChatPage() {
-  const sub = document.getElementById("aiChatSub");
-  if (!statementId) {
-    sub.textContent = "No statement is currently open — go to Upload & Parse and send a statement to workflow first.";
-    document.getElementById("chatInput").disabled = true;
-    document.getElementById("chatSendBtn").disabled = true;
-  } else {
-    sub.textContent = `Chatting about Statement #${statementId}. Ask it to categorize, give it corrections, then apply via the normal Categorize page.`;
-    document.getElementById("chatInput").disabled = false;
-    document.getElementById("chatSendBtn").disabled = false;
-  }
-  loadUsageAnalytics();
-}
-
-function renderChatMessage(role, content) {
-  const wrap = document.getElementById("chatMessages");
-  const isUser = role === "user";
-  const bubble = document.createElement("div");
-  bubble.style.cssText = `align-self:${isUser ? "flex-end" : "flex-start"}; max-width:75%; padding:10px 14px; border-radius:10px; white-space:pre-wrap; font-size:13px; line-height:1.5; background:${isUser ? "var(--accent)" : "var(--surface)"}; color:${isUser ? "#fff" : "var(--text)"}; border:1px solid var(--border);`;
-  bubble.textContent = content;
-  wrap.appendChild(bubble);
-  wrap.scrollTop = wrap.scrollHeight;
-}
-
-async function sendChatMessage() {
-  if (!statementId) return;
-  const input = document.getElementById("chatInput");
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = "";
-  chatHistory.push({ role: "user", content: text });
-  renderChatMessage("user", text);
-
-  const sendBtn = document.getElementById("chatSendBtn");
-  sendBtn.disabled = true; sendBtn.textContent = "…";
-  try {
-    const resp = await fetch(`/api/statements/${statementId}/ai-chat`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: chatHistory }),
-    });
-    const data = await resp.json();
-    if (data.error) {
-      renderChatMessage("assistant", `⚠ ${data.error}`);
-    } else {
-      chatHistory.push({ role: "assistant", content: data.reply });
-      renderChatMessage("assistant", data.reply);
-    }
-    loadUsageAnalytics();
-  } catch (e) {
-    renderChatMessage("assistant", `⚠ Request failed: ${e.message}`);
-  } finally {
-    sendBtn.disabled = false; sendBtn.textContent = "Send";
-  }
-}
-document.getElementById("chatSendBtn").addEventListener("click", sendChatMessage);
-document.getElementById("chatInput").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChatMessage(); });
-
-function usageCard(label, value, sub) {
-  return `<div style="border:1px solid var(--border); border-radius:8px; padding:12px;">
-    <div style="font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;">${esc(label)}</div>
-    <div style="font-size:22px; font-weight:600; margin-top:4px;">${esc(String(value))}</div>
-    ${sub ? `<div style="font-size:11px; color:var(--muted); margin-top:2px;">${esc(sub)}</div>` : ""}
-  </div>`;
-}
-
-async function loadUsageAnalytics() {
-  try {
-    const data = await (await fetch("/api/ai-usage/summary")).json();
-    const rl = data.latest_rate_limit;
-    let html = "";
-    html += usageCard("Requests Today", data.requests_today, "tracked locally, not from Groq");
-    html += usageCard("Tokens Today", data.tokens_today, "real, from Groq response usage");
-    html += usageCard("Requests All-Time", data.requests_all_time);
-    html += usageCard("Tokens All-Time", data.tokens_all_time);
-    if (rl) {
-      html += usageCard("Remaining Requests (this minute)", rl.remaining_requests ?? "—", `limit: ${rl.limit_requests ?? "—"} per minute`);
-      html += usageCard("Remaining Tokens (this minute)", rl.remaining_tokens ?? "—", `limit: ${rl.limit_tokens ?? "—"} per minute`);
-    }
-    document.getElementById("usageGrid").innerHTML = html;
-  } catch (e) {
-    document.getElementById("usageGrid").innerHTML = `<div class="wf-empty">Could not load usage analytics: ${esc(e.message)}</div>`;
-  }
-}
-
-// ── AI Playground — raw chat, zero project context ──────────────────────
-let pgHistory = [];
-
-function pgRenderMessage(role, content, tokenInfo) {
-  const wrap = document.getElementById("pgMessages");
-  const isUser = role === "user";
-  const container = document.createElement("div");
-  container.style.cssText = `align-self:${isUser ? "flex-end" : "flex-start"}; max-width:75%;`;
-  const bubble = document.createElement("div");
-  bubble.style.cssText = `padding:10px 14px; border-radius:10px; white-space:pre-wrap; font-size:13px; line-height:1.5; background:${isUser ? "var(--accent)" : "var(--surface)"}; color:${isUser ? "#fff" : "var(--text)"}; border:1px solid var(--border);`;
-  bubble.textContent = content;
-  container.appendChild(bubble);
-  if (tokenInfo) {
-    const meta = document.createElement("div");
-    meta.style.cssText = "font-size:11px; color:var(--muted); margin-top:4px; text-align:right;";
-    meta.textContent = `prompt: ${tokenInfo.prompt_tokens} · completion: ${tokenInfo.completion_tokens} · total: ${tokenInfo.total_tokens} tokens`;
-    container.appendChild(meta);
-  }
-  wrap.appendChild(container);
-  wrap.scrollTop = wrap.scrollHeight;
-}
-
-async function pgSendMessage() {
-  const input = document.getElementById("pgInput");
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = "";
-  pgHistory.push({ role: "user", content: text });
-  pgRenderMessage("user", text);
-
-  const sendBtn = document.getElementById("pgSendBtn");
-  sendBtn.disabled = true; sendBtn.textContent = "…";
-  try {
-    const resp = await fetch("/api/ai-playground/chat", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: pgHistory }),
-    });
-    const data = await resp.json();
-    if (data.error) {
-      pgRenderMessage("assistant", `⚠ ${data.error}`);
-    } else {
-      pgHistory.push({ role: "assistant", content: data.reply });
-      pgRenderMessage("assistant", data.reply, data.usage);
-    }
-  } catch (e) {
-    pgRenderMessage("assistant", `⚠ Request failed: ${e.message}`);
-  } finally {
-    sendBtn.disabled = false; sendBtn.textContent = "Send";
-  }
-}
-document.getElementById("pgSendBtn").addEventListener("click", pgSendMessage);
-document.getElementById("pgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") pgSendMessage(); });
 
 // ── AI Categorize Page ───────────────────────────────────────────────────────
 
