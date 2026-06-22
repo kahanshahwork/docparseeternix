@@ -626,12 +626,23 @@ def ai_categorize_prompt(sid):
             "message": "No uncategorized transactions — nothing to do."
         })
 
-    # Plain tabular format — proven most efficient in playground tests
+    # Plain tabular format — use transaction_id (real parser ID e.g. nab001) not DB row id
+    rows_list = []
+    txn_id_labels = []  # preserve order for example
+    for t in txns:
+        tid_label = t["transaction_id"] or str(t["id"])
+        txn_id_labels.append(tid_label)
+        direction = "DR" if t["amount"] < 0 else "CR"
+        rows_list.append(
+            f'{tid_label}\t{t["date"] or ""}\t{t["description"]}\t{abs(t["amount"]):.2f}\t{direction}'
+        )
     header = "ID\tDate\tDescription\tAmount\tDR/CR"
-    rows = "\n".join(
-        f'{t["id"]}\t{t["date"] or ""}\t{t["description"]}\t{abs(t["amount"]):.2f}\t'
-        f'{"DR" if t["amount"] < 0 else "CR"}'
-        for t in txns
+    rows = "\n".join(rows_list)
+
+    # Build example lines using real IDs from this statement
+    example_cats = ["Travel & Vehicle", "Salary & Wages", "Sales / Trading Income"]
+    example_lines = "\n".join(
+        f"{eid}: {ecat}" for eid, ecat in zip(txn_id_labels[:3], example_cats)
     )
 
     prompt = (
@@ -645,12 +656,8 @@ def ai_categorize_prompt(sid):
         "Transactions:\n"
         f"{header}\n"
         f"{rows}\n\n"
-        "Respond ONLY in this format, one line per transaction, nothing else:\n"
-        "<ID>: <Category Name>\n\n"
-        "Example:\n"
-        "101: Travel & Transport\n"
-        "102: Salary & Wages\n"
-        "103: Sales / Trading Income"
+        "Respond ONLY in this format — one line per transaction, ID then colon then category, nothing else:\n"
+        f"{example_lines}"
     )
 
     return jsonify({
@@ -685,11 +692,16 @@ def ai_categorize_apply(sid):
     # Build name -> category lookup (case-insensitive)
     cat_by_name = {c["name"].lower().strip(): c for c in categories}
 
-    # Also build id -> transaction lookup for this statement
+    # Build transaction_id -> db row lookup (primary), and db id -> row (fallback)
     txns = conn.execute(
         "SELECT * FROM transactions WHERE statement_id = ?", (sid,)
     ).fetchall()
-    txn_by_id = {t["id"]: t for t in txns}
+    txn_by_txnid = {}   # e.g. "nab001" -> row
+    txn_by_dbid  = {}   # e.g. 1870 -> row (fallback)
+    for t in txns:
+        if t["transaction_id"]:
+            txn_by_txnid[t["transaction_id"]] = t
+        txn_by_dbid[t["id"]] = t
 
     client_id = get_client_id_for_statement(conn, sid)
 
@@ -702,20 +714,30 @@ def ai_categorize_apply(sid):
         if not line:
             continue
 
-        # Match "123: Category Name" or "123 - Category Name"
-        m = re.match(r'^(\d+)\s*[:\-]\s*(.+)$', line)
+        # Match "nab001: Category Name" or "1870: Category Name" or "nab001 - Category Name"
+        # ID can be alphanumeric (e.g. nab001, cba002) or purely numeric
+        m = re.match(r'^([A-Za-z0-9]+)\s*[:\-]\s*(.+)$', line)
         if not m:
-            errors.append({"line": line, "reason": "Could not parse format"})
+            errors.append({"line": line, "reason": "Could not parse format (expected: ID: Category Name)"})
             continue
 
-        tid = int(m.group(1))
+        raw_id = m.group(1).strip()
         cat_name = m.group(2).strip()
 
-        # Look up transaction
-        txn = txn_by_id.get(tid)
+        # Look up transaction — prefer transaction_id, fall back to db id
+        txn = txn_by_txnid.get(raw_id)
         if not txn:
-            errors.append({"line": line, "reason": f"Transaction ID {tid} not in this statement"})
+            # Try numeric db id fallback
+            try:
+                txn = txn_by_dbid.get(int(raw_id))
+            except ValueError:
+                pass
+        if not txn:
+            errors.append({"line": line, "reason": f'ID "{raw_id}" not found in this statement'})
             continue
+
+        # Use DB row id for updates
+        db_tid = txn["id"]
 
         # Look up category (case-insensitive)
         cat = cat_by_name.get(cat_name.lower())
@@ -750,12 +772,12 @@ def ai_categorize_apply(sid):
         gst = gst_engine.recalc_transaction_gst(amount, cat)
         conn.execute(
             "UPDATE transactions SET category_id = ?, gst_amount = ?, net_amount = ? WHERE id = ?",
-            (cat["id"], gst["gst_amount"], gst["net_amount"], tid),
+            (cat["id"], gst["gst_amount"], gst["net_amount"], db_tid),
         )
         if client_id:
             vendor_memory.remember(client_id, txn["description"], cat["id"])
 
-        applied.append({"id": tid, "description": txn["description"], "category": cat["name"]})
+        applied.append({"id": raw_id, "description": txn["description"], "category": cat["name"]})
 
     conn.commit()
 
