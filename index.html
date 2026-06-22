@@ -421,20 +421,63 @@ td { padding: 8px 12px; font-size: 12px; }
   <div class="page" id="page-gst">
     <div class="page-header">
       <h1>GST Review</h1>
-      <span class="sub">Editable — change an amount and GST/net recalculate automatically</span>
+      <span class="sub">ATO BAS summary · Category-wise GST breakdown · Editable amounts</span>
       <div class="right"><button class="btn" id="gstContinueBtn">Approve GST &amp; Generate P&amp;L →</button></div>
     </div>
     <div class="wf-content">
-      <div class="summary-grid" id="gstSummaryGrid"></div>
+
+      <!-- BAS Summary Section -->
+      <div class="panel" style="margin-bottom:16px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+          <div>
+            <h2 style="margin:0 0 2px;">BAS Summary</h2>
+            <div class="psub" style="margin:0;">Per ATO calculation worksheet method — amounts GST-inclusive. Source: <a href="https://www.ato.gov.au/businesses-and-organisations/gst-excise-and-indirect-taxes/gst/lodging-your-bas-or-annual-gst-return/options-for-reporting-and-paying-gst/quarterly-gst-reporting" target="_blank" style="color:var(--accent); text-decoration:none;">ATO Quarterly GST Reporting</a></div>
+          </div>
+        </div>
+        <!-- ATO BAS labels grid -->
+        <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px;" id="gstBasGrid"></div>
+        <!-- Net GST payable highlight -->
+        <div id="gstNetPanel" style="border-radius:8px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between;"></div>
+      </div>
+
+      <!-- Category-wise GST Table -->
+      <div class="panel" style="margin-bottom:16px;">
+        <h2 style="margin-bottom:10px;">Category-wise GST Breakdown</h2>
+        <div class="wf-table-scroll">
+          <table class="wf-table" id="gstCategoryTable">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>P&amp;L Group</th>
+                <th>BAS Label</th>
+                <th style="text-align:right">Gross (inc. GST)</th>
+                <th style="text-align:right">GST Amount</th>
+                <th style="text-align:right">Net (ex. GST)</th>
+                <th style="text-align:right">Txns</th>
+              </tr>
+            </thead>
+            <tbody id="gstCategoryBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Transaction-level detail -->
       <div class="panel">
+        <h2 style="margin-bottom:10px;">Transaction Detail</h2>
+        <div class="psub">Edit any amount — GST and net recalculate automatically using ATO formula (GST = Amount ÷ 11)</div>
         <div class="wf-table-scroll">
           <table class="wf-table">
-            <thead><tr><th>Description</th><th>Category</th><th>GST?</th>
-              <th style="text-align:right">Amount</th><th style="text-align:right">GST</th><th style="text-align:right">Net</th></tr></thead>
+            <thead><tr>
+              <th>Description</th><th>Category</th><th>GST?</th>
+              <th style="text-align:right">Amount (inc.GST)</th>
+              <th style="text-align:right">GST (÷11)</th>
+              <th style="text-align:right">Net (ex.GST)</th>
+            </tr></thead>
             <tbody id="gstBody"></tbody>
           </table>
         </div>
       </div>
+
     </div>
   </div>
 
@@ -1163,11 +1206,87 @@ async function loadGst() {
     </tr>`).join("");
 }
 function renderGstSummary(s) {
-  document.getElementById("gstSummaryGrid").innerHTML = `
-    <div class="tile"><div class="tv">${fmt(s.gst_collected)}</div><div class="tl">GST Collected (on income)</div></div>
-    <div class="tile"><div class="tv">${fmt(s.gst_paid)}</div><div class="tl">GST Paid (on expenses)</div></div>
-    <div class="tile"><div class="tv" style="color:${s.net_gst_payable>=0?'var(--red)':'var(--green)'}">${fmt(s.net_gst_payable)}</div><div class="tl">${s.net_gst_payable>=0?'Net GST Payable':'Net GST Refund Due'}</div></div>
-    <div class="tile"><div class="tv">${s.by_category.length}</div><div class="tl">Categories Used</div></div>`;
+  const bas = s.bas || {};
+
+  // ── ATO BAS labels ────────────────────────────────────────────────────────
+  const basItems = [
+    { label: 'G1',  title: 'Total Sales',            sub: 'All income (GST-inclusive)',          val: bas.G1,    color: 'var(--green)' },
+    { label: '1A',  title: 'GST on Sales',            sub: 'G1 taxable portion ÷ 11',            val: bas['1A'], color: 'var(--green)' },
+    { label: '',    title: '',                         sub: '',                                   val: null },
+    { label: 'G10', title: 'Capital Purchases',       sub: 'GST-inclusive (plant, equipment)',   val: bas.G10,   color: 'var(--red)' },
+    { label: 'G11', title: 'Non-Capital Purchases',   sub: 'GST-inclusive (running expenses)',   val: bas.G11,   color: 'var(--red)' },
+    { label: '1B',  title: 'GST on Purchases',        sub: '(G10+G11) taxable portion ÷ 11',    val: bas['1B'], color: 'var(--red)' },
+  ];
+
+  document.getElementById('gstBasGrid').innerHTML = basItems.map(item => {
+    if (!item.label) return '<div></div>';
+    return `<div style="border:1px solid var(--border); border-radius:8px; padding:12px 14px; background:var(--surface2);">
+      <div style="display:flex; align-items:baseline; gap:8px; margin-bottom:4px;">
+        <span style="font-size:11px; font-weight:800; font-family:var(--mono); color:${item.color}; background:${item.color}18; padding:1px 7px; border-radius:4px;">${item.label}</span>
+        <span style="font-size:11px; font-weight:700; color:var(--text);">${item.title}</span>
+      </div>
+      <div style="font-size:20px; font-weight:700; font-family:var(--mono); color:${item.color}; margin:4px 0 2px;">${fmt(item.val ?? 0)}</div>
+      <div style="font-size:10px; color:var(--muted);">${item.sub}</div>
+    </div>`;
+  }).join('');
+
+  // ── Net GST payable / refund ──────────────────────────────────────────────
+  const net = bas.net_gst_payable ?? s.net_gst_payable ?? 0;
+  const isPayable = net >= 0;
+  const netPanel = document.getElementById('gstNetPanel');
+  netPanel.style.background = isPayable ? 'var(--red-lo)' : 'var(--green-lo)';
+  netPanel.style.border = `1px solid ${isPayable ? 'rgba(220,38,38,.25)' : 'rgba(21,128,61,.25)'}`;
+  netPanel.innerHTML = `
+    <div>
+      <div style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px;">Net GST ${isPayable ? 'Payable to ATO' : 'Refund Due'}</div>
+      <div style="font-size:10px; color:var(--muted);">1A − 1B = ${fmt(bas['1A'] ?? 0)} − ${fmt(bas['1B'] ?? 0)}</div>
+    </div>
+    <div style="font-size:28px; font-weight:800; font-family:var(--mono); color:${isPayable ? 'var(--red)' : 'var(--green)'};">${fmt(Math.abs(net))}</div>
+  `;
+
+  // ── Category-wise table ───────────────────────────────────────────────────
+  const cats = s.by_category || [];
+  const tbody = document.getElementById('gstCategoryBody');
+  if (!tbody) return;
+
+  // Group separators: Income first, then Expense, then Excluded
+  const order = { 'Income': 0, 'Expense': 1, '': 2 };
+  const sorted = [...cats].sort((a,b) => (order[a.pnl_group]??2) - (order[b.pnl_group]??2) || a.category.localeCompare(b.category));
+
+  let lastGroup = null;
+  const rows = sorted.map(cat => {
+    let groupRow = '';
+    const grp = cat.pnl_group || 'Excluded';
+    if (grp !== lastGroup) {
+      lastGroup = grp;
+      const grpColor = grp === 'Income' ? 'var(--green)' : grp === 'Expense' ? 'var(--red)' : 'var(--muted)';
+      groupRow = `<tr><td colspan="7" style="padding:8px 10px 4px; font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.1em; color:${grpColor}; background:var(--surface2); border-bottom:1px solid var(--border);">${esc(grp)}</td></tr>`;
+    }
+    const gstColor = cat.gst_applicable ? 'var(--accent)' : 'var(--muted)';
+    const labelBg  = cat.bas_label === 'G1' ? 'var(--green)' : cat.bas_label.startsWith('G1') ? 'var(--red)' : 'var(--muted)';
+    return groupRow + `<tr>
+      <td style="font-weight:600;">${esc(cat.category)}</td>
+      <td style="font-size:11px; color:var(--text-dim);">${esc(cat.pnl_group||'—')}</td>
+      <td><span style="font-size:10px; font-weight:700; font-family:var(--mono); background:${labelBg}18; color:${labelBg}; padding:1px 6px; border-radius:4px;">${esc(cat.bas_label||'—')}</span></td>
+      <td style="text-align:right; font-family:var(--mono); font-size:12px;">${fmt(cat.gross)}</td>
+      <td style="text-align:right; font-family:var(--mono); font-size:12px; color:${gstColor};">${fmt(cat.gst)}</td>
+      <td style="text-align:right; font-family:var(--mono); font-size:12px;">${fmt(cat.net)}</td>
+      <td style="text-align:right; font-size:11px; color:var(--muted);">${cat.count}</td>
+    </tr>`;
+  }).join('');
+
+  // Totals row
+  const totGross = cats.reduce((a,b) => a + (b.gross||0), 0);
+  const totGst   = cats.reduce((a,b) => a + (b.gst||0), 0);
+  const totNet   = cats.reduce((a,b) => a + (b.net||0), 0);
+  const totCount = cats.reduce((a,b) => a + (b.count||0), 0);
+  tbody.innerHTML = rows + `<tr style="background:var(--surface2); font-weight:700; border-top:2px solid var(--border2);">
+    <td colspan="3" style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted);">Total</td>
+    <td style="text-align:right; font-family:var(--mono);">${fmt(totGross)}</td>
+    <td style="text-align:right; font-family:var(--mono); color:var(--accent);">${fmt(totGst)}</td>
+    <td style="text-align:right; font-family:var(--mono);">${fmt(totNet)}</td>
+    <td style="text-align:right; font-size:11px; color:var(--muted);">${totCount}</td>
+  </tr>`;
 }
 async function editGstAmount(tid, value) {
   const amount = parseFloat(value);
