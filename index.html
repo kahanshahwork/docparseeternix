@@ -54,6 +54,16 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 .nav-item.done .step-num::after { content: "✓"; font-size: 9px; }
 .sidebar-footer { margin-top: auto; padding: 14px 18px; border-top: 1px solid var(--border); font-size: 10px; color: var(--muted); }
 
+.ai-chat-float {
+  display: none;
+  position: fixed; bottom: 20px; right: 20px;
+  width: 360px; height: 480px;
+  background: var(--surface); border: 1px solid var(--border2); border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(20,24,40,.18); z-index: 200;
+  flex-direction: column; overflow: hidden;
+}
+.ai-chat-float.open { display: flex; }
+
 /* Edge-tab toggle buttons — always visible, live outside collapsing panels */
 .edge-tab {
   position: relative; flex-shrink: 0;
@@ -567,6 +577,28 @@ td { padding: 8px 12px; font-size: 12px; }
     </div>
   </div>
 </div>
+
+<!-- ── Floating AI Chat Panel ───────────────────────────────────────────── -->
+<div id="aiChatFloat" class="ai-chat-float">
+  <!-- Header -->
+  <div style="padding:12px 14px; background:var(--accent); display:flex; align-items:center; gap:8px; flex-shrink:0; border-radius:12px 12px 0 0;">
+    <span style="font-size:12px; font-weight:700; color:#fff; flex:1;">AI Chat</span>
+    <span style="font-size:10px; color:rgba(255,255,255,.7);" id="chatFloatCtx"></span>
+    <button id="chatFloatClose" style="background:none;border:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:16px;padding:0 2px;line-height:1;">&times;</button>
+  </div>
+  <!-- Messages -->
+  <div id="chatFloatMessages" style="flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px; background:var(--surface2);"></div>
+  <!-- Input -->
+  <div style="padding:10px 12px; border-top:1px solid var(--border); background:var(--surface); flex-shrink:0; display:flex; gap:8px;">
+    <input id="chatFloatInput" type="text" placeholder="Ask anything…"
+      style="flex:1; padding:8px 10px; border:1px solid var(--border2); border-radius:8px; background:var(--surface2); color:var(--text); font-size:12px; outline:none;"
+      onkeydown="if(event.key==='Enter') sendFloatChat()"/>
+    <button onclick="sendFloatChat()" style="background:var(--accent);border:none;border-radius:8px;color:#fff;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;">Send</button>
+  </div>
+</div>
+
+
+
 
 <script>
 let allTxns = [], allAmbiguous = [], ambDecisions = {};
@@ -1481,82 +1513,57 @@ function renderAiCatResult(data) {
 
 document.getElementById("aiCatGoToCategorize").addEventListener("click", () => goPage("categorize"));
 
-</script>
-<!-- ── Floating AI Chat Panel ───────────────────────────────────────────── -->
-<div id="aiChatFloat" style="
-  display:none; position:fixed; bottom:20px; right:20px; width:360px; height:480px;
-  background:var(--surface); border:1px solid var(--border2); border-radius:12px;
-  box-shadow: 0 8px 32px rgba(20,24,40,.18); z-index:200;
-  display:none; flex-direction:column; overflow:hidden;">
-  <!-- Header -->
-  <div style="padding:12px 14px; background:var(--accent); display:flex; align-items:center; gap:8px; flex-shrink:0; border-radius:12px 12px 0 0;">
-    <span style="font-size:12px; font-weight:700; color:#fff; flex:1;">AI Chat</span>
-    <span style="font-size:10px; color:rgba(255,255,255,.7);" id="chatFloatCtx"></span>
-    <button id="chatFloatClose" style="background:none;border:none;color:rgba(255,255,255,.8);cursor:pointer;font-size:16px;padding:0 2px;line-height:1;">&times;</button>
-  </div>
-  <!-- Messages -->
-  <div id="chatFloatMessages" style="flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px; background:var(--surface2);"></div>
-  <!-- Input -->
-  <div style="padding:10px 12px; border-top:1px solid var(--border); background:var(--surface); flex-shrink:0; display:flex; gap:8px;">
-    <input id="chatFloatInput" type="text" placeholder="Ask anything…"
-      style="flex:1; padding:8px 10px; border:1px solid var(--border2); border-radius:8px; background:var(--surface2); color:var(--text); font-size:12px; outline:none;"
-      onkeydown="if(event.key==='Enter') sendFloatChat()"/>
-    <button onclick="sendFloatChat()" style="background:var(--accent);border:none;border-radius:8px;color:#fff;padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;">Send</button>
-  </div>
-</div>
-
-<script>
 // ── Floating AI Chat ──────────────────────────────────────────────────────────
 (function() {
-  const panel = document.getElementById('aiChatFloat');
+  const panel    = document.getElementById('aiChatFloat');
   const closeBtn = document.getElementById('chatFloatClose');
-  const navItem = document.getElementById('chatToggleNav');
-  const ctx = document.getElementById('chatFloatCtx');
-  let history = [];
+  const navItem  = document.getElementById('chatToggleNav');
+  const ctx      = document.getElementById('chatFloatCtx');
+  if (!panel) return;
+  let chatHistory = [];
 
   function openChat() {
-    panel.style.display = 'flex';
-    ctx.textContent = window.statementId ? `Stmt #${window.statementId}` : '';
-    document.getElementById('chatFloatInput').focus();
+    panel.classList.add('open');
+    if (ctx) ctx.textContent = statementId ? 'Stmt #' + statementId : '';
+    const inp = document.getElementById('chatFloatInput');
+    if (inp) setTimeout(() => inp.focus(), 50);
   }
-  function closeChat() { panel.style.display = 'none'; }
+  function closeChat() { panel.classList.remove('open'); }
 
   if (navItem) navItem.addEventListener('click', () => {
-    panel.style.display === 'flex' ? closeChat() : openChat();
+    panel.classList.contains('open') ? closeChat() : openChat();
   });
   if (closeBtn) closeBtn.addEventListener('click', closeChat);
 
   window.sendFloatChat = async function() {
     const input = document.getElementById('chatFloatInput');
     const msgs  = document.getElementById('chatFloatMessages');
-    const text  = input.value.trim();
+    if (!input || !msgs) return;
+    const text = input.value.trim();
     if (!text) return;
     input.value = '';
 
-    // Render user bubble
     const ub = document.createElement('div');
-    ub.style.cssText = 'align-self:flex-end;max-width:80%;padding:8px 11px;border-radius:10px 10px 2px 10px;background:var(--accent);color:#fff;font-size:12px;line-height:1.5;white-space:pre-wrap;';
+    ub.style.cssText = 'align-self:flex-end;max-width:82%;padding:8px 11px;border-radius:10px 10px 2px 10px;background:var(--accent);color:#fff;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;';
     ub.textContent = text;
     msgs.appendChild(ub);
     msgs.scrollTop = msgs.scrollHeight;
 
-    // Thinking bubble
     const tb = document.createElement('div');
-    tb.style.cssText = 'align-self:flex-start;padding:8px 11px;border-radius:10px 10px 10px 2px;background:var(--surface);border:1px solid var(--border);font-size:12px;color:var(--muted);';
+    tb.style.cssText = 'align-self:flex-start;max-width:82%;padding:8px 11px;border-radius:10px 10px 10px 2px;background:var(--surface);border:1px solid var(--border);font-size:12px;color:var(--muted);white-space:pre-wrap;word-break:break-word;';
     tb.textContent = '…';
     msgs.appendChild(tb);
     msgs.scrollTop = msgs.scrollHeight;
 
-    history.push({ role:'user', content: text });
-
+    chatHistory.push({ role: 'user', content: text });
     try {
       const resp = await fetch('/api/ai-playground/chat', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ messages: history })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: chatHistory })
       });
       const data = await resp.json();
       const reply = data.reply || data.error || 'No response';
-      history.push({ role:'assistant', content: reply });
+      chatHistory.push({ role: 'assistant', content: reply });
       tb.textContent = reply;
       tb.style.color = 'var(--text)';
     } catch(e) {
@@ -1566,6 +1573,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     msgs.scrollTop = msgs.scrollHeight;
   };
 })();
+
 </script>
 
 </body>
