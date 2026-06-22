@@ -216,6 +216,7 @@ td { padding: 8px 12px; font-size: 12px; }
   <div class="nav-group">
     <div class="nav-label">Admin</div>
     <div class="nav-item" data-page="clients"><span class="ic">🏢</span> Clients</div>
+    <div class="nav-item" data-page="aicategorize"><span class="ic">🤖</span> AI Categorize</div>
     <div class="nav-item" data-page="aichat"><span class="ic">💬</span> AI Chat</div>
     <div class="nav-item" data-page="aiplayground"><span class="ic">🧪</span> AI Playground</div>
   </div>
@@ -480,6 +481,66 @@ td { padding: 8px 12px; font-size: 12px; }
     </div>
   </div>
 
+  <!-- ── AI Categorize Page ───────────────────────────────────────────────── -->
+  <div class="page" id="page-aicategorize">
+    <div class="page-header">
+      <h1>AI Categorize</h1>
+      <span class="sub" id="aiCatSub">Copy the prompt → paste into any AI → paste the response back → apply.</span>
+      <div class="right">
+        <button class="btn-sec" id="aiCatRefreshBtn" style="display:none;">↻ Refresh Prompt</button>
+      </div>
+    </div>
+    <div class="wf-content" style="display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start;">
+
+      <!-- LEFT: Prompt Generator -->
+      <div>
+        <div class="panel">
+          <h2>Step 1 — Copy Prompt</h2>
+          <div class="psub" id="aiCatPromptInfo">Load a statement first to generate a prompt.</div>
+          <div id="aiCatPromptBox" style="display:none; margin-top:12px;">
+            <div style="background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:12px; font-family:var(--mono); font-size:11px; line-height:1.6; white-space:pre-wrap; max-height:360px; overflow-y:auto; color:var(--text-dim);" id="aiCatPromptText"></div>
+            <button class="btn" id="aiCatCopyBtn" style="margin-top:10px; width:100%;">📋 Copy Prompt to Clipboard</button>
+            <div id="aiCatCopyConfirm" style="display:none; text-align:center; font-size:11px; color:var(--green); margin-top:6px; font-weight:600;">✓ Copied! Paste into any AI (Claude, ChatGPT, Groq, Gemma…)</div>
+          </div>
+          <div id="aiCatNoTxns" style="display:none; margin-top:12px;">
+            <div style="background:var(--green-lo); border:1px solid rgba(21,128,61,.25); border-radius:8px; padding:14px; font-size:12px; color:var(--green); text-align:center;">
+              ✓ All transactions are already categorized for this statement.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Paste Response + Apply -->
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="panel">
+          <h2>Step 2 — Paste AI Response</h2>
+          <div class="psub">Paste exactly what the AI replied. One line per transaction: <code style="font-family:var(--mono); background:var(--surface2); padding:1px 5px; border-radius:4px;">ID: Category Name</code></div>
+          <textarea id="aiCatPasteBox"
+            placeholder="101: Travel & Transport&#10;102: Salary & Wages&#10;103: Sales / Trading Income&#10;104: Bank Fees & Charges"
+            style="width:100%; height:200px; margin-top:10px; padding:10px 12px; font-family:var(--mono); font-size:12px; line-height:1.6; border:1px solid var(--border); border-radius:8px; background:var(--surface2); color:var(--text); resize:vertical; outline:none;"
+          ></textarea>
+          <button class="btn" id="aiCatApplyBtn" style="margin-top:10px; width:100%;" disabled>Apply Categories →</button>
+        </div>
+
+        <!-- Result panel — hidden until apply is run -->
+        <div class="panel" id="aiCatResultPanel" style="display:none;">
+          <h2>Result</h2>
+          <div id="aiCatResultSummary" style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap;"></div>
+          <div id="aiCatResultErrors" style="display:none;">
+            <div style="font-size:11px; font-weight:700; color:var(--amber); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em;">Skipped / Errors</div>
+            <div id="aiCatErrorList" style="font-family:var(--mono); font-size:11px; background:var(--amber-lo); border:1px solid rgba(180,83,9,.2); border-radius:6px; padding:10px; line-height:1.8; color:var(--amber);"></div>
+          </div>
+          <div id="aiCatResultApplied" style="display:none; margin-top:10px;">
+            <div style="font-size:11px; font-weight:700; color:var(--green); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em;">Applied</div>
+            <div id="aiCatAppliedList" style="font-family:var(--mono); font-size:11px; background:var(--green-lo); border:1px solid rgba(21,128,61,.2); border-radius:6px; padding:10px; line-height:1.8; color:var(--green); max-height:200px; overflow-y:auto;"></div>
+          </div>
+          <button class="btn-sec" id="aiCatGoToCategorize" style="margin-top:12px; width:100%;">View in Categorize Page →</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
 </div>
 
 <div class="modal-overlay" id="ambModal">
@@ -517,6 +578,7 @@ function goPage(name) {
   if (name === "clients") loadClients();
   if (name === "aichat") loadAiChatPage();
   if (name === "aiplayground") { /* no setup needed -- fully standalone */ }
+  if (name === "aicategorize") loadAiCategorizePage();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
   item.addEventListener("click", () => { if (item.classList.contains("disabled")) return; goPage(item.dataset.page); });
@@ -1311,6 +1373,188 @@ async function pgSendMessage() {
 }
 document.getElementById("pgSendBtn").addEventListener("click", pgSendMessage);
 document.getElementById("pgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") pgSendMessage(); });
+
+// ── AI Categorize Page ───────────────────────────────────────────────────────
+let aiCatCategories = [];  // populated on page load, used by parser
+
+async function loadAiCategorizePage() {
+  const sub = document.getElementById("aiCatSub");
+  const promptInfo = document.getElementById("aiCatPromptInfo");
+  const promptBox = document.getElementById("aiCatPromptBox");
+  const promptText = document.getElementById("aiCatPromptText");
+  const noTxns = document.getElementById("aiCatNoTxns");
+  const applyBtn = document.getElementById("aiCatApplyBtn");
+  const refreshBtn = document.getElementById("aiCatRefreshBtn");
+  const resultPanel = document.getElementById("aiCatResultPanel");
+
+  // Reset result panel on each page load
+  resultPanel.style.display = "none";
+  document.getElementById("aiCatPasteBox").value = "";
+
+  if (!statementId) {
+    sub.textContent = "No statement loaded — go to Upload & Parse first.";
+    promptInfo.textContent = "Load a statement to generate a prompt.";
+    promptBox.style.display = "none";
+    noTxns.style.display = "none";
+    applyBtn.disabled = true;
+    refreshBtn.style.display = "none";
+    return;
+  }
+
+  promptInfo.textContent = "Loading uncategorized transactions…";
+  promptBox.style.display = "none";
+  noTxns.style.display = "none";
+  refreshBtn.style.display = "none";
+
+  try {
+    const resp = await fetch(`/api/statements/${statementId}/ai-categorize/prompt`);
+    const data = await resp.json();
+
+    aiCatCategories = data.categories || [];
+
+    if (data.uncategorized_count === 0) {
+      sub.textContent = `Statement #${statementId} — all transactions categorized.`;
+      promptInfo.textContent = "";
+      noTxns.style.display = "block";
+      applyBtn.disabled = true;
+      refreshBtn.style.display = "none";
+      return;
+    }
+
+    sub.textContent = `Statement #${statementId} · ${data.uncategorized_count} uncategorized · Business: ${data.business_type}`;
+    promptInfo.textContent = `${data.uncategorized_count} uncategorized transactions. Copy the prompt below, paste it into any AI (Claude, ChatGPT, Groq, Gemma…), then paste the response back in Step 2.`;
+    promptText.textContent = data.prompt;
+    promptBox.style.display = "block";
+    noTxns.style.display = "none";
+    applyBtn.disabled = false;
+    refreshBtn.style.display = "inline-flex";
+
+  } catch (e) {
+    promptInfo.textContent = `⚠ Failed to load prompt: ${e.message}. Make sure the Flask server is running.`;
+  }
+}
+
+// Copy prompt to clipboard
+document.getElementById("aiCatCopyBtn").addEventListener("click", async () => {
+  const text = document.getElementById("aiCatPromptText").textContent;
+  const confirm = document.getElementById("aiCatCopyConfirm");
+  try {
+    await navigator.clipboard.writeText(text);
+    confirm.style.display = "block";
+    setTimeout(() => { confirm.style.display = "none"; }, 3000);
+  } catch (e) {
+    // Fallback for non-https
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    confirm.style.display = "block";
+    setTimeout(() => { confirm.style.display = "none"; }, 3000);
+  }
+});
+
+// Refresh prompt
+document.getElementById("aiCatRefreshBtn").addEventListener("click", loadAiCategorizePage);
+
+// Enable Apply button when paste box has content
+document.getElementById("aiCatPasteBox").addEventListener("input", () => {
+  const val = document.getElementById("aiCatPasteBox").value.trim();
+  const applyBtn = document.getElementById("aiCatApplyBtn");
+  // Only enable if a statement is loaded AND paste box has content
+  applyBtn.disabled = !(val && statementId);
+});
+
+// Apply pasted AI response
+document.getElementById("aiCatApplyBtn").addEventListener("click", async () => {
+  if (!statementId) return;
+  const pasteBox = document.getElementById("aiCatPasteBox");
+  const text = pasteBox.value.trim();
+  if (!text) return;
+
+  const applyBtn = document.getElementById("aiCatApplyBtn");
+  applyBtn.disabled = true;
+  applyBtn.textContent = "Applying…";
+
+  try {
+    const resp = await fetch(`/api/statements/${statementId}/ai-categorize/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ response_text: text })
+    });
+
+    if (!resp.ok) {
+      const ct = resp.headers.get("content-type") || "";
+      if (!ct.includes("application/json")) {
+        throw new Error("Server returned an error page — restart Flask after any .py changes.");
+      }
+    }
+
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    renderAiCatResult(data);
+
+  } catch (e) {
+    const resultPanel = document.getElementById("aiCatResultPanel");
+    resultPanel.style.display = "block";
+    document.getElementById("aiCatResultSummary").innerHTML =
+      `<div style="color:var(--red); font-size:12px;">⚠ ${esc(e.message)}</div>`;
+    document.getElementById("aiCatResultErrors").style.display = "none";
+    document.getElementById("aiCatResultApplied").style.display = "none";
+  } finally {
+    applyBtn.disabled = false;
+    applyBtn.textContent = "Apply Categories →";
+  }
+});
+
+function renderAiCatResult(data) {
+  const panel = document.getElementById("aiCatResultPanel");
+  panel.style.display = "block";
+
+  // Summary chips
+  const summaryEl = document.getElementById("aiCatResultSummary");
+  const chipStyle = (color, bg) =>
+    `display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; background:${bg}; color:${color}; border:1px solid ${color}33;`;
+
+  summaryEl.innerHTML = `
+    <span style="${chipStyle("var(--green)", "var(--green-lo)")}">✓ ${data.applied} applied</span>
+    ${data.errors.length ? `<span style="${chipStyle("var(--amber)", "var(--amber-lo)")}">⚠ ${data.errors.length} skipped</span>` : ""}
+    <span style="font-size:11px; color:var(--muted); align-self:center;">${data.total_lines} lines parsed</span>
+  `;
+
+  // Errors
+  const errorsEl = document.getElementById("aiCatResultErrors");
+  const errorListEl = document.getElementById("aiCatErrorList");
+  if (data.errors.length) {
+    errorsEl.style.display = "block";
+    errorListEl.innerHTML = data.errors.map(e =>
+      `<div>${esc(e.line || "")} <span style="opacity:.7">→ ${esc(e.reason)}</span></div>`
+    ).join("");
+  } else {
+    errorsEl.style.display = "none";
+  }
+
+  // Applied list
+  const appliedEl = document.getElementById("aiCatResultApplied");
+  const appliedListEl = document.getElementById("aiCatAppliedList");
+  if (data.applied_detail && data.applied_detail.length) {
+    appliedEl.style.display = "block";
+    appliedListEl.innerHTML = data.applied_detail.map(a =>
+      `<div>#${esc(String(a.id))} ${esc(a.description)} <span style="opacity:.7">→ ${esc(a.category)}</span></div>`
+    ).join("");
+  } else {
+    appliedEl.style.display = "none";
+  }
+
+  // Scroll result into view
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+document.getElementById("aiCatGoToCategorize").addEventListener("click", () => goPage("categorize"));
+
 </script>
 </body>
 </html>

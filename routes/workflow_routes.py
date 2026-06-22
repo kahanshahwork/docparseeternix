@@ -586,6 +586,192 @@ def ai_usage_summary():
 
 # ── Raw AI Playground (zero injected context — pure passthrough to Groq) ───
 
+# ── AI Categorize Page — prompt generation + paste-back apply ────────────────
+
+@workflow_bp.route("/statements/<int:sid>/ai-categorize/prompt", methods=["GET"])
+def ai_categorize_prompt(sid):
+    """
+    Returns all the data needed for the AI Categorize page:
+      - the ready-to-copy plain-text prompt (categories + all uncategorized txns)
+      - the category list (for the parser to validate names)
+      - uncategorized transaction count
+    The prompt format is the proven plain-tabular style (validated in Groq playground).
+    No AI call is made here — this is purely prompt generation.
+    """
+    conn = get_db()
+    client_id = get_client_id_for_statement(conn, sid)
+    business_type_label = "Unknown"
+    if client_id:
+        row = conn.execute("SELECT business_type FROM clients WHERE id = ?", (client_id,)).fetchone()
+        if row:
+            from core.business_types import BUSINESS_TYPES
+            business_type_label = next(
+                (b["label"] for b in BUSINESS_TYPES if b["code"] == row["business_type"]), "Unknown"
+            )
+
+    categories = category_master.list_categories()
+    cat_names = [c["name"] for c in categories]
+    cat_list_str = "\n".join(f"- {name}" for name in cat_names)
+
+    txns = conn.execute(
+        "SELECT * FROM transactions WHERE statement_id = ? AND category_id IS NULL ORDER BY date",
+        (sid,)
+    ).fetchall()
+
+    if not txns:
+        return jsonify({
+            "prompt": "",
+            "categories": cat_names,
+            "uncategorized_count": 0,
+            "message": "No uncategorized transactions — nothing to do."
+        })
+
+    # Plain tabular format — proven most efficient in playground tests
+    header = "ID\tDate\tDescription\tAmount\tDR/CR"
+    rows = "\n".join(
+        f'{t["id"]}\t{t["date"] or ""}\t{t["description"]}\t{abs(t["amount"]):.2f}\t'
+        f'{"DR" if t["amount"] < 0 else "CR"}'
+        for t in txns
+    )
+
+    prompt = (
+        f"You are an Australian bookkeeping assistant. Business type: {business_type_label}.\n\n"
+        "Categorize each transaction below using ONLY these exact categories (copy names exactly):\n"
+        f"{cat_list_str}\n\n"
+        "Rules:\n"
+        "- DR (debit, money out) → Expense or Excluded categories only\n"
+        "- CR (credit, money in) → Income or Excluded categories only\n"
+        "- If unsure, use: Uncategorized\n\n"
+        "Transactions:\n"
+        f"{header}\n"
+        f"{rows}\n\n"
+        "Respond ONLY in this format, one line per transaction, nothing else:\n"
+        "<ID>: <Category Name>\n\n"
+        "Example:\n"
+        "101: Travel & Transport\n"
+        "102: Salary & Wages\n"
+        "103: Sales / Trading Income"
+    )
+
+    return jsonify({
+        "prompt": prompt,
+        "categories": cat_names,
+        "uncategorized_count": len(txns),
+        "business_type": business_type_label
+    })
+
+
+@workflow_bp.route("/statements/<int:sid>/ai-categorize/apply", methods=["POST"])
+def ai_categorize_apply(sid):
+    """
+    body: {response_text: "101: Travel & Transport\\n102: Salary & Wages\\n..."}
+
+    Parses the pasted AI response (plain id: category_name format),
+    validates each line against the category master, applies the direction
+    guardrail, writes to DB via the same GST recalc path as /categorize,
+    and returns a detailed result summary.
+
+    One malformed line never breaks the rest — parsing is line-by-line.
+    """
+    import re
+    conn = get_db()
+    body = request.json or {}
+    response_text = body.get("response_text", "").strip()
+
+    if not response_text:
+        return jsonify({"error": "No response text provided"}), 400
+
+    categories = category_master.list_categories()
+    # Build name -> category lookup (case-insensitive)
+    cat_by_name = {c["name"].lower().strip(): c for c in categories}
+
+    # Also build id -> transaction lookup for this statement
+    txns = conn.execute(
+        "SELECT * FROM transactions WHERE statement_id = ?", (sid,)
+    ).fetchall()
+    txn_by_id = {t["id"]: t for t in txns}
+
+    client_id = get_client_id_for_statement(conn, sid)
+
+    applied = []
+    skipped = []
+    errors = []
+
+    for line in response_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        # Match "123: Category Name" or "123 - Category Name"
+        m = re.match(r'^(\d+)\s*[:\-]\s*(.+)$', line)
+        if not m:
+            errors.append({"line": line, "reason": "Could not parse format"})
+            continue
+
+        tid = int(m.group(1))
+        cat_name = m.group(2).strip()
+
+        # Look up transaction
+        txn = txn_by_id.get(tid)
+        if not txn:
+            errors.append({"line": line, "reason": f"Transaction ID {tid} not in this statement"})
+            continue
+
+        # Look up category (case-insensitive)
+        cat = cat_by_name.get(cat_name.lower())
+        if not cat:
+            # Try fuzzy: check if the AI name is a substring of a real name
+            matches = [c for name, c in cat_by_name.items() if cat_name.lower() in name or name in cat_name.lower()]
+            if len(matches) == 1:
+                cat = matches[0]
+            else:
+                errors.append({"line": line, "reason": f'Category "{cat_name}" not recognized'})
+                continue
+
+        # Direction guardrail — same logic as existing categorize endpoint
+        amount = txn["amount"]
+        is_debit = amount < 0
+        pnl_group = cat.get("pnl_group", "")
+        direction_ok = True
+        if is_debit and pnl_group == "Income":
+            direction_ok = False
+        elif not is_debit and pnl_group == "Expense":
+            direction_ok = False
+
+        if not direction_ok:
+            direction = "DR" if is_debit else "CR"
+            errors.append({
+                "line": line,
+                "reason": f"Direction mismatch: {direction} transaction cannot be {pnl_group} category"
+            })
+            continue
+
+        # Apply — same GST recalc path as /categorize
+        gst = gst_engine.recalc_transaction_gst(amount, cat)
+        conn.execute(
+            "UPDATE transactions SET category_id = ?, gst_amount = ?, net_amount = ? WHERE id = ?",
+            (cat["id"], gst["gst_amount"], gst["net_amount"], tid),
+        )
+        if client_id:
+            vendor_memory.remember(client_id, txn["description"], cat["id"])
+
+        applied.append({"id": tid, "description": txn["description"], "category": cat["name"]})
+
+    conn.commit()
+
+    if applied:
+        log_audit("statement", sid, "ai-categorize-apply",
+                  f"{len(applied)} applied, {len(skipped)} skipped, {len(errors)} errors")
+
+    return jsonify({
+        "applied": len(applied),
+        "applied_detail": applied,
+        "errors": errors,
+        "skipped": skipped,
+        "total_lines": len([l for l in response_text.splitlines() if l.strip()])
+    })
+
+
 @workflow_bp.route("/ai-playground/chat", methods=["POST"])
 def ai_playground_chat():
     """
