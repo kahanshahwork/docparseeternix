@@ -716,7 +716,7 @@ def ai_categorize_apply(sid):
 
         # Match "nab001: Category Name" or "1870: Category Name" or "nab001 - Category Name"
         # ID can be alphanumeric (e.g. nab001, cba002) or purely numeric
-        m = re.match(r'^([A-Za-z0-9]+)\s*[:\-]\s*(.+)$', line)
+        m = re.match(r'^([A-Za-z0-9_\-]+)\s*[:\-]\s*(.+)$', line)
         if not m:
             errors.append({"line": line, "reason": "Could not parse format (expected: ID: Category Name)"})
             continue

@@ -483,75 +483,95 @@ td { padding: 8px 12px; font-size: 12px; }
 
   <!-- ── AI Categorize Page ───────────────────────────────────────────────── -->
   <div class="page" id="page-aicategorize">
+    <!-- Header -->
     <div class="page-header">
       <h1>AI Categorize</h1>
-      <span class="sub" id="aiCatSub">Copy the prompt → paste into any AI → paste ONLY the AI's response back below.</span>
+      <span class="sub" id="aiCatSub">Load a statement, then copy the prompt → paste into any AI → paste response back → apply.</span>
       <div class="right">
-        <button class="btn-sec" id="aiCatRefreshBtn" style="display:none;">↻ Refresh Prompt</button>
+        <button class="btn-sec" id="aiCatRefreshBtn" style="display:none;">↻ Refresh</button>
       </div>
     </div>
 
-    <!-- Step indicators row -->
-    <div style="display:flex; gap:0; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; padding:0 22px;">
-      <div style="padding:10px 18px 10px 0; font-size:11px; font-weight:700; color:var(--accent); border-bottom:2px solid var(--accent);">① Copy Prompt</div>
-      <div style="padding:10px 18px; font-size:11px; font-weight:700; color:var(--muted);">→ Paste into any AI externally</div>
-      <div style="padding:10px 18px; font-size:11px; font-weight:700; color:var(--muted);">→ ② Paste AI Response below</div>
-      <div style="padding:10px 18px; font-size:11px; font-weight:700; color:var(--muted);">→ ③ Apply</div>
+    <!-- Step strip -->
+    <div style="display:flex; align-items:center; gap:0; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; padding:0 18px; overflow-x:auto;">
+      <div style="padding:9px 14px 9px 0; font-size:11px; font-weight:700; color:var(--accent); border-bottom:2px solid var(--accent); white-space:nowrap;">① Copy Prompt</div>
+      <div style="padding:9px 14px; font-size:11px; color:var(--muted); white-space:nowrap;">→ Paste into Claude / ChatGPT / Groq / Gemma</div>
+      <div style="padding:9px 14px; font-size:11px; color:var(--muted); white-space:nowrap;">→ ② Paste AI Response</div>
+      <div style="padding:9px 14px; font-size:11px; color:var(--muted); white-space:nowrap;">→ ③ Apply</div>
     </div>
 
-    <div class="wf-content" style="display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start;">
+    <!-- Resizable split pane -->
+    <div id="aiCatSplit" style="flex:1; display:flex; overflow:hidden; min-height:0;">
 
-      <!-- LEFT PANEL: Prompt only -->
-      <div>
-        <div class="panel">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-            <h2 style="margin:0;">① Prompt — Copy This</h2>
-            <span style="font-size:10px; background:var(--accent-lo); color:var(--accent); padding:2px 8px; border-radius:10px; font-weight:700;">READ ONLY</span>
+      <!-- LEFT: Prompt pane -->
+      <div id="aiCatLeft" style="width:50%; display:flex; flex-direction:column; overflow:hidden; min-width:200px;">
+        <!-- Pane header -->
+        <div style="padding:10px 16px 8px; background:var(--surface); border-bottom:1px solid var(--border); border-right:1px solid var(--border); flex-shrink:0; display:flex; align-items:center; justify-content:space-between;">
+          <span style="font-size:11px; font-weight:700; color:var(--text);">① Prompt</span>
+          <span style="font-size:10px; background:var(--accent-lo); color:var(--accent); padding:2px 8px; border-radius:10px; font-weight:700; letter-spacing:.03em;">READ ONLY — do not paste this back</span>
+        </div>
+        <!-- Prompt info / content -->
+        <div style="flex:1; overflow-y:auto; padding:14px 16px; border-right:1px solid var(--border); background:var(--surface);">
+          <div id="aiCatPromptInfo" style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">Load a statement first to generate a prompt.</div>
+          <div id="aiCatNoTxns" style="display:none; margin-bottom:12px;">
+            <div style="background:var(--green-lo); border:1px solid rgba(21,128,61,.25); border-radius:8px; padding:14px; font-size:12px; color:var(--green); text-align:center;">✓ All transactions are already categorized.</div>
           </div>
-          <div class="psub" id="aiCatPromptInfo">Load a statement first to generate a prompt.</div>
-
-          <div id="aiCatPromptBox" style="display:none; margin-top:12px;">
-            <div style="background:var(--surface2); border:1.5px solid var(--border2); border-radius:8px; padding:12px; font-family:var(--mono); font-size:11px; line-height:1.7; white-space:pre-wrap; max-height:400px; overflow-y:auto; color:var(--text-dim); user-select:text;" id="aiCatPromptText"></div>
-            <button class="btn" id="aiCatCopyBtn" style="margin-top:10px; width:100%; font-size:13px;">📋 Copy Prompt to Clipboard</button>
-            <div id="aiCatCopyConfirm" style="display:none; text-align:center; font-size:11px; color:var(--green); margin-top:6px; font-weight:600;">✓ Copied! Now paste into Claude, ChatGPT, Groq, or any AI.</div>
-          </div>
-
-          <div id="aiCatNoTxns" style="display:none; margin-top:12px;">
-            <div style="background:var(--green-lo); border:1px solid rgba(21,128,61,.25); border-radius:8px; padding:14px; font-size:12px; color:var(--green); text-align:center;">
-              ✓ All transactions are already categorized for this statement.
-            </div>
+          <div id="aiCatPromptBox" style="display:none;">
+            <div id="aiCatPromptText"
+              style="background:var(--surface2); border:1px solid var(--border2); border-radius:8px; padding:12px;
+                     font-family:var(--mono); font-size:11px; line-height:1.75; white-space:pre-wrap;
+                     color:var(--text); overflow-y:auto; max-height:calc(100vh - 280px);
+                     user-select:text; word-break:break-word;"></div>
+            <button class="btn" id="aiCatCopyBtn" style="margin-top:10px; width:100%;">📋 Copy Prompt to Clipboard</button>
+            <div id="aiCatCopyConfirm" style="display:none; text-align:center; font-size:11px; color:var(--green); margin-top:6px; font-weight:600;">✓ Copied! Paste into any AI now.</div>
           </div>
         </div>
       </div>
 
-      <!-- RIGHT PANEL: Paste response + Apply + Result -->
-      <div style="display:flex; flex-direction:column; gap:16px;">
-        <div class="panel">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-            <h2 style="margin:0;">② Paste AI Response Here</h2>
-            <span style="font-size:10px; background:var(--green-lo); color:var(--green); padding:2px 8px; border-radius:10px; font-weight:700;">PASTE HERE</span>
+      <!-- Drag divider -->
+      <div id="aiCatDivider" style="width:5px; background:var(--border); cursor:col-resize; flex-shrink:0; transition:background .15s;"
+           onmouseenter="this.style.background='var(--accent)'" onmouseleave="this.style.background='var(--border)'"></div>
+
+      <!-- RIGHT: Paste + Apply + Result pane -->
+      <div id="aiCatRight" style="flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:200px;">
+        <!-- Pane header -->
+        <div style="padding:10px 16px 8px; background:var(--surface); border-bottom:1px solid var(--border); flex-shrink:0; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+          <span style="font-size:11px; font-weight:700; color:var(--text);">② Paste AI Response &amp; Apply</span>
+          <span style="font-size:10px; background:var(--green-lo); color:var(--green); padding:2px 8px; border-radius:10px; font-weight:700; letter-spacing:.03em;">PASTE HERE</span>
+        </div>
+        <!-- Scrollable content -->
+        <div style="flex:1; overflow-y:auto; padding:14px 16px; background:var(--surface);">
+          <div style="font-size:11px; color:var(--text-dim); margin-bottom:8px;">
+            Paste <strong style="color:var(--text);">only the AI's reply lines</strong> —
+            e.g. <code style="font-family:var(--mono); background:var(--surface2); padding:1px 6px; border-radius:4px;">nab_0001: Travel &amp; Vehicle</code>
           </div>
-          <div class="psub">Paste <strong>only the AI's reply</strong> — the lines like <code style="font-family:var(--mono); background:var(--surface2); padding:1px 6px; border-radius:4px; font-size:11px;">nab001: Travel &amp; Vehicle</code>. Do not paste the full prompt.</div>
           <textarea id="aiCatPasteBox"
-            placeholder="Paste the AI's response here. Example:&#10;nab001: Travel &amp; Vehicle&#10;nab002: Salary &amp; Wages&#10;nab003: Sales / Trading Income"
-            style="width:100%; height:220px; margin-top:10px; padding:10px 12px; font-family:var(--mono); font-size:12px; line-height:1.7; border:1.5px solid var(--green); border-radius:8px; background:var(--surface2); color:var(--text); resize:vertical; outline:none;"
+            placeholder="Paste AI response here:&#10;nab_0001: Travel &amp; Vehicle&#10;nab_0002: Salary &amp; Wages&#10;nab_0003: Sales / Trading Income"
+            style="width:100%; height:260px; padding:10px 12px; font-family:var(--mono); font-size:12px;
+                   line-height:1.75; border:1.5px solid var(--green); border-radius:8px;
+                   background:var(--surface2); color:var(--text); resize:vertical; outline:none;
+                   box-shadow: inset 0 1px 3px rgba(0,0,0,.04);"
           ></textarea>
-          <button class="btn" id="aiCatApplyBtn" style="margin-top:10px; width:100%; background:var(--green);" disabled>③ Apply Categories →</button>
-        </div>
+          <button class="btn" id="aiCatApplyBtn"
+            style="margin-top:10px; width:100%; background:var(--green); font-size:13px;" disabled>
+            ③ Apply Categories →
+          </button>
 
-        <!-- Result panel -->
-        <div class="panel" id="aiCatResultPanel" style="display:none;">
-          <h2>Result</h2>
-          <div id="aiCatResultSummary" style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap;"></div>
-          <div id="aiCatResultErrors" style="display:none;">
-            <div style="font-size:11px; font-weight:700; color:var(--amber); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em;">Skipped / Errors</div>
-            <div id="aiCatErrorList" style="font-family:var(--mono); font-size:11px; background:var(--amber-lo); border:1px solid rgba(180,83,9,.2); border-radius:6px; padding:10px; line-height:1.8; color:var(--amber);"></div>
+          <!-- Result -->
+          <div id="aiCatResultPanel" style="display:none; margin-top:16px; border:1px solid var(--border); border-radius:10px; padding:14px; background:var(--surface2);">
+            <div style="font-size:12px; font-weight:700; margin-bottom:10px; color:var(--text);">Result</div>
+            <div id="aiCatResultSummary" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;"></div>
+            <div id="aiCatResultErrors" style="display:none; margin-bottom:10px;">
+              <div style="font-size:10px; font-weight:700; color:var(--amber); text-transform:uppercase; letter-spacing:.06em; margin-bottom:5px;">Skipped / Errors</div>
+              <div id="aiCatErrorList" style="font-family:var(--mono); font-size:11px; background:var(--amber-lo); border:1px solid rgba(180,83,9,.2); border-radius:6px; padding:8px 10px; line-height:1.9; color:var(--amber); max-height:160px; overflow-y:auto;"></div>
+            </div>
+            <div id="aiCatResultApplied" style="display:none; margin-bottom:10px;">
+              <div style="font-size:10px; font-weight:700; color:var(--green); text-transform:uppercase; letter-spacing:.06em; margin-bottom:5px;">Applied</div>
+              <div id="aiCatAppliedList" style="font-family:var(--mono); font-size:11px; background:var(--green-lo); border:1px solid rgba(21,128,61,.2); border-radius:6px; padding:8px 10px; line-height:1.9; color:var(--green); max-height:160px; overflow-y:auto;"></div>
+            </div>
+            <button class="btn-sec" id="aiCatGoToCategorize" style="width:100%;">View in Categorize Page →</button>
           </div>
-          <div id="aiCatResultApplied" style="display:none; margin-top:10px;">
-            <div style="font-size:11px; font-weight:700; color:var(--green); margin-bottom:6px; text-transform:uppercase; letter-spacing:.04em;">Applied</div>
-            <div id="aiCatAppliedList" style="font-family:var(--mono); font-size:11px; background:var(--green-lo); border:1px solid rgba(21,128,61,.2); border-radius:6px; padding:10px; line-height:1.8; color:var(--green); max-height:200px; overflow-y:auto;"></div>
-          </div>
-          <button class="btn-sec" id="aiCatGoToCategorize" style="margin-top:12px; width:100%;">View in Categorize Page →</button>
+
         </div>
       </div>
 
@@ -1392,62 +1412,90 @@ document.getElementById("pgSendBtn").addEventListener("click", pgSendMessage);
 document.getElementById("pgInput").addEventListener("keydown", (e) => { if (e.key === "Enter") pgSendMessage(); });
 
 // ── AI Categorize Page ───────────────────────────────────────────────────────
-let aiCatCategories = [];  // populated on page load, used by parser
+
+// Drag-to-resize divider
+(function() {
+  let dragging = false, startX = 0, startW = 0;
+  document.addEventListener('mousedown', e => {
+    if (e.target.id !== 'aiCatDivider') return;
+    dragging = true;
+    startX = e.clientX;
+    startW = document.getElementById('aiCatLeft').offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const split = document.getElementById('aiCatSplit');
+    if (!split) return;
+    const totalW = split.offsetWidth;
+    const newW = Math.max(180, Math.min(totalW - 180, startW + (e.clientX - startX)));
+    document.getElementById('aiCatLeft').style.width = newW + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    dragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
 
 async function loadAiCategorizePage() {
-  const sub = document.getElementById("aiCatSub");
-  const promptInfo = document.getElementById("aiCatPromptInfo");
-  const promptBox = document.getElementById("aiCatPromptBox");
-  const promptText = document.getElementById("aiCatPromptText");
-  const noTxns = document.getElementById("aiCatNoTxns");
-  const applyBtn = document.getElementById("aiCatApplyBtn");
-  const refreshBtn = document.getElementById("aiCatRefreshBtn");
-  const resultPanel = document.getElementById("aiCatResultPanel");
+  const sub = document.getElementById('aiCatSub');
+  const promptInfo = document.getElementById('aiCatPromptInfo');
+  const promptBox = document.getElementById('aiCatPromptBox');
+  const promptText = document.getElementById('aiCatPromptText');
+  const noTxns = document.getElementById('aiCatNoTxns');
+  const applyBtn = document.getElementById('aiCatApplyBtn');
+  const refreshBtn = document.getElementById('aiCatRefreshBtn');
+  const resultPanel = document.getElementById('aiCatResultPanel');
 
-  // Reset result panel on each page load
-  resultPanel.style.display = "none";
-  document.getElementById("aiCatPasteBox").value = "";
+  resultPanel.style.display = 'none';
+  document.getElementById('aiCatPasteBox').value = '';
 
   if (!statementId) {
-    sub.textContent = "No statement loaded — go to Upload & Parse first.";
-    promptInfo.textContent = "Load a statement to generate a prompt.";
-    promptBox.style.display = "none";
-    noTxns.style.display = "none";
+    sub.textContent = 'No statement loaded — go to Upload & Parse first.';
+    promptInfo.textContent = 'Load a statement to generate a prompt.';
+    promptInfo.style.display = 'block';
+    promptBox.style.display = 'none';
+    noTxns.style.display = 'none';
     applyBtn.disabled = true;
-    refreshBtn.style.display = "none";
+    refreshBtn.style.display = 'none';
     return;
   }
 
-  promptInfo.textContent = "Loading uncategorized transactions…";
-  promptBox.style.display = "none";
-  noTxns.style.display = "none";
-  refreshBtn.style.display = "none";
+  promptInfo.textContent = 'Loading uncategorized transactions…';
+  promptInfo.style.display = 'block';
+  promptBox.style.display = 'none';
+  noTxns.style.display = 'none';
+  refreshBtn.style.display = 'none';
 
   try {
     const resp = await fetch(`/api/statements/${statementId}/ai-categorize/prompt`);
+    if (!resp.ok) throw new Error('Server error — restart Flask if you just changed a .py file.');
     const data = await resp.json();
-
-    aiCatCategories = data.categories || [];
 
     if (data.uncategorized_count === 0) {
       sub.textContent = `Statement #${statementId} — all transactions categorized.`;
-      promptInfo.textContent = "";
-      noTxns.style.display = "block";
+      promptInfo.style.display = 'none';
+      noTxns.style.display = 'block';
+      promptBox.style.display = 'none';
       applyBtn.disabled = true;
-      refreshBtn.style.display = "none";
+      refreshBtn.style.display = 'none';
       return;
     }
 
     sub.textContent = `Statement #${statementId} · ${data.uncategorized_count} uncategorized · Business: ${data.business_type}`;
-    promptInfo.textContent = `${data.uncategorized_count} uncategorized transactions. Copy the prompt below, paste it into any AI (Claude, ChatGPT, Groq, Gemma…), then paste the response back in Step 2.`;
+    promptInfo.textContent = `${data.uncategorized_count} uncategorized transactions ready. Copy the prompt → paste into any AI → paste response back on the right.`;
+    promptInfo.style.display = 'block';
     promptText.textContent = data.prompt;
-    promptBox.style.display = "block";
-    noTxns.style.display = "none";
+    promptBox.style.display = 'block';
+    noTxns.style.display = 'none';
     applyBtn.disabled = false;
-    refreshBtn.style.display = "inline-flex";
+    refreshBtn.style.display = 'inline-flex';
 
   } catch (e) {
-    promptInfo.textContent = `⚠ Failed to load prompt: ${e.message}. Make sure the Flask server is running.`;
+    promptInfo.textContent = '⚠ ' + e.message;
+    promptInfo.style.display = 'block';
   }
 }
 
