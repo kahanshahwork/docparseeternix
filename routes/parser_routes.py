@@ -5,6 +5,13 @@ This is the ONLY file that should change if you're touching upload/detect/
 parse/pdf-preview behavior. It does not know about categories, GST, or P&L —
 those live in routes/workflow_routes.py. Bank-specific logic stays inside
 parsers/<bank>.py, untouched by this router.
+
+Supported upload formats:
+  .pdf  — standard text or image PDF (passed straight through)
+  .zip  — Westpac legacy ZIP-of-txt format (passed straight through)
+  .png / .jpg / .jpeg — single-page scanned image; converted to a single-page
+                        PDF on the server before detection/parsing so all
+                        existing parsers receive the same PDF interface.
 """
 
 import os, time, uuid, base64, tempfile, threading, io
@@ -19,6 +26,11 @@ APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _STORE: dict[str, dict] = {}
 _LOCK = threading.Lock()
 _TTL = 1800  # 30 min
+
+# Accepted extensions (lowercase)
+_IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
+_PDF_EXTS   = {".pdf", ".zip"}
+_ALL_EXTS   = _PDF_EXTS | _IMAGE_EXTS
 
 
 def _save(path: str) -> str:
@@ -50,6 +62,72 @@ def _cleanup():
             del _STORE[k]
 
 
+def _ext(filename: str) -> str:
+    """Return lowercase extension including the dot, e.g. '.png'."""
+    return os.path.splitext(filename.lower())[1]
+
+
+def _image_to_pdf(image_path: str) -> str:
+    """
+    Convert a PNG/JPG file to a single-page PDF at standard A4 size (595×842 pt)
+    and return the new temp path. Fitting into A4 keeps coordinate space consistent
+    with text-PDF statements so parser pixel thresholds stay valid when the file is
+    re-rasterised for OCR.
+
+    Uses img2pdf with an explicit A4 page layout; falls back to Pillow if unavailable.
+    The caller is responsible for deleting the returned file.
+    """
+    pdf_tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    pdf_tmp.close()
+    try:
+        import img2pdf
+        # A4 in pts: 595 × 842. img2pdf.get_layout_fun fits the image inside the page.
+        a4 = (img2pdf.in_to_pt(8.27), img2pdf.in_to_pt(11.69))   # ≈ 595×842 pt
+        layout = img2pdf.get_layout_fun(a4)
+        with open(image_path, "rb") as img_f, open(pdf_tmp.name, "wb") as out_f:
+            out_f.write(img2pdf.convert(img_f, layout_fun=layout))
+    except Exception:
+        # Fallback: Pillow — resize to A4 at 300 DPI then save as PDF
+        from PIL import Image
+        img = Image.open(image_path).convert("RGB")
+        a4_px = (int(8.27 * 300), int(11.69 * 300))   # 2481 × 3507 px at 300 DPI
+        img = img.resize(a4_px, Image.LANCZOS)
+        img.save(pdf_tmp.name, format="PDF", resolution=300)
+    return pdf_tmp.name
+
+
+def _save_upload(f) -> tuple[str, bool]:
+    """
+    Save an uploaded FileStorage to a temp file.
+    If it's an image, convert it to PDF first.
+    Returns (tmp_path, is_converted_image).
+    """
+    fname = f.filename or ""
+    ext   = _ext(fname)
+
+    if ext in _IMAGE_EXTS:
+        # Save image first, then convert to PDF
+        img_tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+        f.save(img_tmp.name)
+        img_tmp.close()
+        try:
+            pdf_path = _image_to_pdf(img_tmp.name)
+        finally:
+            try:
+                os.unlink(img_tmp.name)
+            except OSError:
+                pass
+        return pdf_path, True
+    else:
+        suffix = ".zip" if ext == ".zip" else ".pdf"
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        f.save(tmp.name)
+        tmp.close()
+        return tmp.name, False
+
+
+# ─────────────────────────── Routes ───────────────────────────────────────────
+
 @parser_bp.route("/")
 def index():
     return send_from_directory(APP_ROOT, "index.html")
@@ -57,8 +135,6 @@ def index():
 
 @parser_bp.route("/workflow")
 def workflow_page():
-    """Old standalone workflow.html is gone — the workflow is now pages inside the
-    single-page app at '/'. Redirect so any saved bookmark still lands somewhere useful."""
     return redirect("/")
 
 
@@ -69,36 +145,41 @@ def list_parsers():
 
 @parser_bp.route("/detect", methods=["POST"])
 def detect():
-    """Identifies WHICH BANK only. Nothing about account type/layout happens here —
-    that's each parser's own internal business once /parse calls it."""
+    """Identifies WHICH BANK only. Accepts PDF, ZIP, PNG, JPG/JPEG.
+    Images are converted to single-page PDF before detection."""
     if "pdf" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
-    f = request.files["pdf"]
-    if not f.filename.lower().endswith((".pdf", ".zip")):
-        return jsonify({"error": "Only PDF/ZIP files supported"}), 400
 
-    suffix = ".zip" if f.filename.lower().endswith(".zip") else ".pdf"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        f.save(tmp.name)
-        tmp_path = tmp.name
+    f = request.files["pdf"]
+    if _ext(f.filename or "") not in _ALL_EXTS:
+        return jsonify({
+            "error": "Unsupported file type. Upload a PDF, ZIP, PNG, or JPG."
+        }), 400
+
+    try:
+        tmp_path, is_image = _save_upload(f)
+    except Exception as e:
+        return jsonify({"error": f"Could not process file: {e}"}), 500
 
     result = registry.detect(tmp_path)
     result["tmp_token"] = _save(tmp_path)
+    if is_image:
+        result["source_type"] = "image"   # hint to frontend if needed
     return jsonify(result)
 
 
 @parser_bp.route("/parse", methods=["POST"])
 def parse():
     if request.content_type and "application/json" in request.content_type:
-        body = request.json or {}
+        body     = request.json or {}
         tmp_token = body.get("tmp_token")
-        bank_id = body.get("bank_id")
+        bank_id  = body.get("bank_id")
     else:
         tmp_token = request.form.get("tmp_token")
-        bank_id = request.form.get("bank_id")
+        bank_id  = request.form.get("bank_id")
 
-    tmp_path = None
-    owns_file = False
+    tmp_path   = None
+    owns_file  = False
 
     if tmp_token:
         tmp_path = _load(tmp_token)
@@ -106,10 +187,14 @@ def parse():
             return jsonify({"error": "Session expired — please re-upload the file"}), 400
     elif "pdf" in request.files:
         f = request.files["pdf"]
-        suffix = ".zip" if f.filename.lower().endswith(".zip") else ".pdf"
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            f.save(tmp.name)
-            tmp_path = tmp.name
+        if _ext(f.filename or "") not in _ALL_EXTS:
+            return jsonify({
+                "error": "Unsupported file type. Upload a PDF, ZIP, PNG, or JPG."
+            }), 400
+        try:
+            tmp_path, _ = _save_upload(f)
+        except Exception as e:
+            return jsonify({"error": f"Could not process file: {e}"}), 500
         owns_file = True
         tmp_token = _save(tmp_path)
     else:
@@ -127,7 +212,7 @@ def parse():
     try:
         result = registry.parse(tmp_path, bank_id)
         result["tmp_token"] = tmp_token
-        result["bank_id"] = bank_id
+        result["bank_id"]   = bank_id
         _cleanup()
         return jsonify(result)
     except Exception as e:
@@ -143,13 +228,16 @@ def parse():
 
 @parser_bp.route("/pdf_page")
 def pdf_page():
-    """Renders a page image. If `highlights` (plural, JSON array of tops) is given,
-    draws ALL of them (item 3); `highlight` (singular) still works for the
-    currently-selected row drawn in a stronger color on top."""
-    token = request.args.get("tmp_token", "")
+    """Renders a page image with optional row highlights.
+    Works for both PDF files and image-converted-to-PDF files stored in _STORE.
+    `highlights` (plural, JSON array of tops) draws faint blue bands for all rows.
+    `highlight`  (singular) draws the selected row in amber on top.
+    """
+    token    = request.args.get("tmp_token", "")
     page_num = int(request.args.get("page", "1"))
-    highlight = request.args.get("highlight", "")       # selected row (strong)
-    highlights = request.args.get("highlights", "")      # all rows on this page (faint)
+    highlight  = request.args.get("highlight", "")
+    highlights = request.args.get("highlights", "")
+
     tmp_path = _load(token)
     if not tmp_path:
         return jsonify({"error": "Session expired"}), 400
@@ -159,14 +247,15 @@ def pdf_page():
             total = len(pdf.pages)
             if page_num < 1 or page_num > total:
                 return jsonify({"error": f"Page {page_num} out of range (1-{total})"}), 400
+
             page = pdf.pages[page_num - 1]
-            img = page.to_image(resolution=150)
+            img  = page.to_image(resolution=150)
 
             from PIL import Image, ImageDraw
-            base = img.original.convert("RGBA")
+            base    = img.original.convert("RGBA")
             overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
-            draw = ImageDraw.Draw(overlay)
-            scale = 150 / 72
+            draw    = ImageDraw.Draw(overlay)
+            scale   = 150 / 72
 
             if highlights:
                 try:
