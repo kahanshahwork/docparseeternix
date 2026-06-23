@@ -57,15 +57,90 @@ _SKIP_ROW_RE = re.compile(
     re.I,
 )
 
-# Column zones for NAB Business Everyday (x0 boundaries)
+# Column zones for NAB Business Everyday — DEFAULTS only.
+# These are overridden per-page by _calibrate_columns() which reads
+# the actual "Debits / Credits / Balance" header row positions.
+# This means the parser survives margin changes, scaling, or layout drift
+# across different NAB statement generations without any code changes.
 _DATE_X_MAX  = 100   # date words: day/month/year tokens
 _PART_X_MIN  = 100   # particulars column starts
 _PART_X_MAX  = 360   # particulars column ends
-_DEB_X_MIN   = 355   # debits column (header x0=371)
-_DEB_X_MAX   = 430   # debits column end
-_CRED_X_MIN  = 430   # credits column (header x0=439)
-_CRED_X_MAX  = 495   # credits column end (must NOT overlap balance)
-_BAL_X_MIN   = 495   # balance column (header x0=520, values at x0=501+)
+_DEB_X_MIN   = 355   # debits column fallback
+_DEB_X_MAX   = 430   # debits column fallback end
+_CRED_X_MIN  = 430   # credits column fallback
+_CRED_X_MAX  = 495   # credits column fallback end
+_BAL_X_MIN   = 495   # balance column fallback
+
+
+def _calibrate_columns(words: list) -> dict:
+    """
+    Derive Debit / Credit / Balance column boundaries dynamically by
+    finding the transaction table header row on the page.
+
+    Strategy:
+      1. Group words by y-position (5pt buckets to handle sub-pixel drift).
+      2. Find the row that contains both "Debits" AND "Credits" — this is
+         the transaction table header, not the summary section.
+      3. Use the midpoint between adjacent header word centres as zone splits.
+      4. Fall back to hardcoded defaults if the header is not found.
+
+    This makes the parser immune to:
+      - Margin changes (page shifted left/right)
+      - Font scaling (header words wider/narrower)
+      - Layout drift between NAB statement generations
+      - Large amounts like 100,000.00 whose x0 drifts left of the zone edge
+    """
+    from collections import defaultdict
+
+    # Group words into horizontal rows using 5pt y-buckets
+    by_y = defaultdict(list)
+    for w in words:
+        by_y[round(w["top"] / 5) * 5].append(w)
+
+    # Find the row that has both "Debits" and "Credits" — that's the table header
+    header_row = None
+    for y_bucket in sorted(by_y.keys()):
+        row = by_y[y_bucket]
+        texts = {w["text"].lower() for w in row}
+        if "debits" in texts and "credits" in texts:
+            header_row = row
+            break
+
+    if header_row is None:
+        # Header not on this page — return hardcoded defaults
+        return {
+            "deb_min":  _DEB_X_MIN,
+            "deb_max":  _DEB_X_MAX,
+            "cred_min": _CRED_X_MIN,
+            "cred_max": _CRED_X_MAX,
+            "bal_min":  _BAL_X_MIN,
+        }
+
+    # Extract the key header words
+    header = {}
+    for w in header_row:
+        key = w["text"].lower()
+        if key in ("debits", "credits", "balance", "particulars"):
+            header[key] = w
+
+    def mid(w):
+        return (w["x0"] + w["x1"]) / 2
+
+    deb_mid  = mid(header["debits"])
+    cred_mid = mid(header["credits"])
+    bal_mid  = mid(header["balance"]) if "balance" in header else cred_mid + 70
+
+    # Zone split = midpoint between adjacent column header centres (no padding)
+    split_deb_cred = (deb_mid + cred_mid) / 2
+    split_cred_bal = (cred_mid + bal_mid)  / 2
+
+    return {
+        "deb_min":  _DATE_X_MAX,
+        "deb_max":  split_deb_cred,
+        "cred_min": split_deb_cred,
+        "cred_max": split_cred_bal,
+        "bal_min":  split_cred_bal,
+    }
 
 # Credit card column zones
 _CC_DATE_X_MAX   = 100
@@ -197,6 +272,10 @@ def _parse_nab_business(pages: list, start_year: int) -> tuple:
     for page_num, page in enumerate(pages, 1):
         words = page.extract_words(x_tolerance=1, y_tolerance=3)
 
+        # Self-calibrate column boundaries from this page's header row.
+        # Falls back to hardcoded defaults if no header found (e.g. cover pages).
+        col = _calibrate_columns(words)
+
         if not _is_nab_business_page(words):
             # Try to pull opening balance from summary text on cover pages
             if opening_bal is None:
@@ -242,13 +321,13 @@ def _parse_nab_business(pages: list, start_year: int) -> tuple:
                            and not _is_dot_fill(w["text"])
                            and w["text"].lower() not in ("cr", "dr")]
             deb_words   = [w for w in visible
-                           if _DEB_X_MIN <= w["x0"] < _DEB_X_MAX
+                           if col["deb_min"] <= (w["x0"]+w["x1"])/2 < col["deb_max"]
                            and _is_amount_token(w["text"])]
             cred_words  = [w for w in visible
-                           if _CRED_X_MIN <= w["x0"] < _CRED_X_MAX
+                           if col["cred_min"] <= (w["x0"]+w["x1"])/2 < col["cred_max"]
                            and _is_amount_token(w["text"])]
             bal_words   = [w for w in visible
-                           if w["x0"] >= _BAL_X_MIN
+                           if (w["x0"]+w["x1"])/2 >= col["bal_min"]
                            and _is_amount_token(w["text"])
                            and w["text"].lower() not in ("cr", "dr")]
 

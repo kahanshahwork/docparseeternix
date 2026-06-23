@@ -1037,9 +1037,11 @@ function resumeStatement(id) {
   statementId = id;
   activeStatementId = id;
   updateSidebarCtx();
-  unlockNav('approve', 'categorize', 'gst', 'pnl', 'aicategorize');
+  unlockNav('parse', 'approve', 'categorize', 'gst', 'pnl', 'aicategorize');
   document.getElementById('sidebarFooter').textContent = `Statement #${id}`;
-  goPage('approve');
+  // Go to parse page first (step 1) so user sees context before proceeding
+  goPage('parse');
+  loadSavedStatements();
 }
 
 async function deleteStatement(id) {
@@ -1515,6 +1517,31 @@ function openSplitWindow(stmtId) {
 // ══════════════════════════════════════════════════════════════════════════
 
 // ── APPROVE ───────────────────────────────────────────────────────────────
+// Convert date from parser format (08-Oct-2025 or 08-Oct-25) to YYYY-MM-DD for HTML date input
+function toInputDate(d) {
+  if (!d) return '';
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  // 08-Oct-2025 or 08-Oct-25
+  const months = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
+                  jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
+  const m = d.match(/^(\d{1,2})[- ]([A-Za-z]{3})[- ](\d{2,4})$/);
+  if (!m) return '';
+  const day  = m[1].padStart(2,'0');
+  const mon  = months[m[2].toLowerCase()] || '01';
+  const year = m[3].length === 2 ? '20' + m[3] : m[3];
+  return `${year}-${mon}-${day}`;
+}
+
+// Convert YYYY-MM-DD back to display format DD-Mon-YYYY
+function fromInputDate(d) {
+  if (!d) return '';
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return d;
+  return `${m[3]}-${months[parseInt(m[2])-1]}-${m[1]}`;
+}
+
 async function loadApprove() {
   if (!statementId) return;
   document.getElementById("approveSub").textContent = `Statement #${statementId}`;
@@ -1523,7 +1550,7 @@ async function loadApprove() {
   wfTransactions = d;
   document.getElementById("approveBody").innerHTML = d.map(t => `
     <tr>
-      <td><input type="date" value="${esc(t.date||'')}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);" onchange="patchTxn(${t.id},'date',this.value)"/></td>
+      <td><input type="date" value="${toInputDate(t.date)}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);" onchange="patchTxn(${t.id},'date',fromInputDate(this.value))"/></td>
       <td><input type="text" value="${esc(t.description||'')}" style="border:none;background:transparent;font-size:11.5px;color:var(--text);width:100%;" onchange="patchTxn(${t.id},'description',this.value)"/></td>
       <td style="color:var(--muted);font-size:11px;">${t.source_page||''}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11.5px;" class="${t.amount>0?'td-amt pos':'td-amt neg'}">
