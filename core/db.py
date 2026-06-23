@@ -30,92 +30,107 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS clients (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     name          TEXT NOT NULL,
-    business_type TEXT NOT NULL DEFAULT 'RETAIL_TRADING',  -- code from core/business_types.py
+    business_type TEXT NOT NULL DEFAULT 'RETAIL_TRADING',
     created_at    TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS quarters (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id   INTEGER NOT NULL REFERENCES clients(id),
-    label       TEXT NOT NULL,           -- e.g. "Q1 2026"
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id    INTEGER NOT NULL REFERENCES clients(id),
+    label        TEXT NOT NULL,
     period_start TEXT,
     period_end   TEXT,
-    created_at  TEXT DEFAULT (datetime('now'))
+    created_at   TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS statements (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    quarter_id  INTEGER REFERENCES quarters(id),
-    bank_id     TEXT NOT NULL,
-    filename    TEXT,
-    status      TEXT NOT NULL DEFAULT 'parsed',
-        -- parsed -> approved -> categorized -> gst_reviewed -> finalized
-    uploaded_by TEXT,
-    created_at  TEXT DEFAULT (datetime('now'))
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    quarter_id     INTEGER REFERENCES quarters(id),
+    bank_id        TEXT NOT NULL,
+    filename       TEXT,
+    statement_name TEXT,
+    status         TEXT NOT NULL DEFAULT 'parsed',
+    uploaded_by    TEXT,
+    created_at     TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS categories (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    code            TEXT UNIQUE NOT NULL,
-    name            TEXT NOT NULL,
-    pnl_group       TEXT NOT NULL,       -- 'Income' | 'Expense' | 'Excluded'
-    gst_applicable  INTEGER NOT NULL DEFAULT 0,   -- 0/1
-    gst_rate        REAL NOT NULL DEFAULT 0.10,
-    bas_label       TEXT,                -- e.g. 'G1', 'G11', 'excluded'
-    is_active       INTEGER NOT NULL DEFAULT 1,
-    sort_order      INTEGER DEFAULT 0
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    code           TEXT UNIQUE NOT NULL,
+    name           TEXT NOT NULL,
+    pnl_group      TEXT NOT NULL,
+    gst_applicable INTEGER NOT NULL DEFAULT 0,
+    gst_rate       REAL NOT NULL DEFAULT 0.10,
+    bas_label      TEXT,
+    is_active      INTEGER NOT NULL DEFAULT 1,
+    sort_order     INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    statement_id    INTEGER NOT NULL REFERENCES statements(id),
-    transaction_id  TEXT,                -- original id from parser
-    date            TEXT,
-    description     TEXT,
-    amount          REAL NOT NULL,       -- signed: + credit, - debit
-    balance         REAL,
-    source_page     INTEGER,
-    row_top         REAL,
-    confidence      REAL,
-    approved        INTEGER NOT NULL DEFAULT 0,
-    category_id     INTEGER REFERENCES categories(id),
-    gst_amount      REAL DEFAULT 0,
-    net_amount      REAL,
-    group_key       TEXT,                -- normalized description, for grouping UI
-    created_at      TEXT DEFAULT (datetime('now'))
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    statement_id   INTEGER NOT NULL REFERENCES statements(id),
+    transaction_id TEXT,
+    date           TEXT,
+    description    TEXT,
+    amount         REAL NOT NULL,
+    balance        REAL,
+    source_page    INTEGER,
+    row_top        REAL,
+    confidence     REAL,
+    approved       INTEGER NOT NULL DEFAULT 0,
+    category_id    INTEGER REFERENCES categories(id),
+    gst_amount     REAL DEFAULT 0,
+    net_amount     REAL,
+    group_key      TEXT,
+    created_at     TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS vendor_memory (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id       INTEGER REFERENCES clients(id),
-    pattern         TEXT NOT NULL,       -- normalized vendor/description key
-    category_id     INTEGER NOT NULL REFERENCES categories(id),
-    hit_count       INTEGER NOT NULL DEFAULT 1,
-    updated_at      TEXT DEFAULT (datetime('now')),
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id   INTEGER REFERENCES clients(id),
+    pattern     TEXT NOT NULL,
+    category_id INTEGER NOT NULL REFERENCES categories(id),
+    hit_count   INTEGER NOT NULL DEFAULT 1,
+    updated_at  TEXT DEFAULT (datetime('now')),
     UNIQUE(client_id, pattern)
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    entity_type TEXT NOT NULL,           -- 'transaction' | 'statement' | 'category'
+    entity_type TEXT NOT NULL,
     entity_id   INTEGER NOT NULL,
-    action      TEXT NOT NULL,           -- 'approve' | 'categorize' | 'edit_amount' | ...
+    action      TEXT NOT NULL,
     detail      TEXT,
     actor       TEXT,
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS ai_usage_log (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    statement_id        INTEGER,
-    prompt_tokens       INTEGER,
-    completion_tokens   INTEGER,
-    total_tokens        INTEGER,
-    limit_requests      INTEGER,   -- from Groq's x-ratelimit-limit-requests header
-    remaining_requests  INTEGER,   -- from Groq's x-ratelimit-remaining-requests header
-    limit_tokens        INTEGER,   -- from Groq's x-ratelimit-limit-tokens header
-    remaining_tokens     INTEGER,   -- from Groq's x-ratelimit-remaining-tokens header
-    created_at          TEXT DEFAULT (datetime('now'))
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    statement_id       INTEGER,
+    prompt_tokens      INTEGER,
+    completion_tokens  INTEGER,
+    total_tokens       INTEGER,
+    limit_requests     INTEGER,
+    remaining_requests INTEGER,
+    limit_tokens       INTEGER,
+    remaining_tokens   INTEGER,
+    created_at         TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS quarter_consolidations (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    quarter_id         INTEGER NOT NULL REFERENCES quarters(id),
+    consolidation_name TEXT NOT NULL DEFAULT 'Consolidated Report',
+    created_at         TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS annual_consolidations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id   INTEGER NOT NULL REFERENCES clients(id),
+    label       TEXT NOT NULL,
+    quarter_ids TEXT NOT NULL,
+    created_at  TEXT DEFAULT (datetime('now'))
 );
 """
 
@@ -124,23 +139,24 @@ def init_db():
     conn = get_db()
     conn.executescript(SCHEMA)
     conn.commit()
-    _migrate_add_business_type_column(conn)
+    _migrate(conn)
 
 
-def _migrate_add_business_type_column(conn: sqlite3.Connection):
-    """
-    Safe, idempotent migration for existing databases created before
-    business_type was added to the clients table. CREATE TABLE IF NOT
-    EXISTS in SCHEMA only helps brand-new databases -- this patches
-    already-existing ones. Safe to call on every startup.
-    """
+def _migrate(conn: sqlite3.Connection):
+    """Safe, idempotent migrations for existing databases."""
     cols = [row[1] for row in conn.execute("PRAGMA table_info(clients)").fetchall()]
     if "business_type" not in cols:
         conn.execute(
             "ALTER TABLE clients ADD COLUMN business_type TEXT NOT NULL DEFAULT 'RETAIL_TRADING'"
         )
         conn.commit()
-        print("[db] Migrated: added business_type column to clients table.")
+        print("[db] Migrated: added business_type to clients.")
+
+    stmt_cols = [row[1] for row in conn.execute("PRAGMA table_info(statements)").fetchall()]
+    if "statement_name" not in stmt_cols:
+        conn.execute("ALTER TABLE statements ADD COLUMN statement_name TEXT")
+        conn.commit()
+        print("[db] Migrated: added statement_name to statements.")
 
 
 def log_audit(entity_type: str, entity_id: int, action: str, detail: str = "", actor: str = "user"):

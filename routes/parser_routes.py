@@ -168,12 +168,17 @@ def _save_upload(f) -> tuple[str, bool]:
 
 @parser_bp.route("/")
 def index():
+    return send_from_directory(APP_ROOT, "landing.html")
+
+
+@parser_bp.route("/app")
+def app_page():
     return send_from_directory(APP_ROOT, "index.html")
 
 
 @parser_bp.route("/workflow")
 def workflow_page():
-    return redirect("/")
+    return redirect("/app")
 
 
 @parser_bp.route("/parsers")

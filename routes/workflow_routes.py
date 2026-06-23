@@ -95,10 +95,12 @@ def create_statement():
     filename = b.get("filename", "")
     quarter_id = b.get("quarter_id")
 
+    statement_name = b.get("statement_name") or filename or None
+
     conn = get_db()
     cur = conn.execute(
-        "INSERT INTO statements (quarter_id, bank_id, filename, status) VALUES (?,?,?, 'parsed')",
-        (quarter_id, bank_id, filename),
+        "INSERT INTO statements (quarter_id, bank_id, filename, statement_name, status) VALUES (?,?,?,?, 'parsed')",
+        (quarter_id, bank_id, filename, statement_name),
     )
     statement_id = cur.lastrowid
 
@@ -900,3 +902,137 @@ def ai_playground_chat():
     if result["error"]:
         return jsonify({"error": result["error"]}), 502
     return jsonify({"reply": result["content"], "usage": usage, "rate_limit": rl})
+
+
+# ── Quarters/Statements list (new) ─────────────────────────────────────────
+
+@workflow_bp.route("/quarters/<int:qid>/statements", methods=["GET"])
+def get_quarter_statements(qid):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT s.*, COUNT(t.id) as txn_count
+        FROM statements s
+        LEFT JOIN transactions t ON t.statement_id = s.id
+        WHERE s.quarter_id = ?
+        GROUP BY s.id
+        ORDER BY s.created_at DESC
+    """, (qid,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@workflow_bp.route("/statements/<int:sid>", methods=["DELETE"])
+def delete_statement(sid):
+    conn = get_db()
+    conn.execute("DELETE FROM transactions WHERE statement_id = ?", (sid,))
+    conn.execute("DELETE FROM statements WHERE id = ?", (sid,))
+    conn.commit()
+    return jsonify({"deleted": sid})
+
+
+# ── Statement name update ───────────────────────────────────────────────────
+
+@workflow_bp.route("/statements/<int:sid>/name", methods=["PATCH"])
+def update_statement_name(sid):
+    b = request.json or {}
+    name = b.get("statement_name", "").strip()
+    conn = get_db()
+    conn.execute("UPDATE statements SET statement_name = ? WHERE id = ?", (name, sid))
+    conn.commit()
+    return jsonify({"id": sid, "statement_name": name})
+
+
+# ── Quarter consolidation ───────────────────────────────────────────────────
+
+@workflow_bp.route("/quarters/<int:qid>/consolidate", methods=["POST"])
+def consolidate_quarter(qid):
+    """Merge transactions from multiple statements into one consolidated statement."""
+    b = request.json or {}
+    stmt_ids = b.get("statement_ids", [])
+    name = b.get("name", "Consolidated BAS Report")
+    if not stmt_ids:
+        return jsonify({"error": "No statement IDs provided"}), 400
+
+    conn = get_db()
+
+    # Create a new consolidated statement
+    cur = conn.execute(
+        "INSERT INTO statements (quarter_id, bank_id, filename, statement_name, status) VALUES (?, 'consolidated', ?, ?, 'parsed')",
+        (qid, name, name)
+    )
+    new_stmt_id = cur.lastrowid
+
+    # Copy all transactions from selected statements
+    placeholders = ",".join("?" * len(stmt_ids))
+    txns = conn.execute(
+        f"SELECT * FROM transactions WHERE statement_id IN ({placeholders}) ORDER BY date, id",
+        stmt_ids
+    ).fetchall()
+
+    count = 0
+    for t in txns:
+        conn.execute("""
+            INSERT INTO transactions (statement_id, transaction_id, date, description,
+                amount, balance, source_page, row_top, confidence, approved,
+                category_id, gst_amount, net_amount, group_key)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            new_stmt_id,
+            f"consol_{new_stmt_id}_{t['id']}",
+            t["date"], t["description"], t["amount"], t["balance"],
+            t["source_page"], t["row_top"], t["confidence"], t["approved"],
+            t["category_id"], t["gst_amount"], t["net_amount"], t["group_key"]
+        ))
+        count += 1
+
+    conn.commit()
+    log_audit("statement", new_stmt_id, "consolidate", f"Merged {len(stmt_ids)} statements, {count} transactions")
+    return jsonify({"consolidated_statement_id": new_stmt_id, "txn_count": count, "name": name})
+
+
+# ── Annual consolidation ────────────────────────────────────────────────────
+
+@workflow_bp.route("/consolidate/annual", methods=["POST"])
+def consolidate_annual():
+    import json
+    b = request.json or {}
+    client_id = b.get("client_id")
+    label = b.get("label", "Annual")
+    quarter_ids = b.get("quarter_ids", [])
+    if not quarter_ids or not client_id:
+        return jsonify({"error": "client_id and quarter_ids required"}), 400
+
+    conn = get_db()
+
+    # Collect all transactions across all quarters
+    all_count = 0
+    for qid in quarter_ids:
+        stmts = conn.execute("SELECT id FROM statements WHERE quarter_id = ?", (qid,)).fetchall()
+        for s in stmts:
+            cnt = conn.execute("SELECT COUNT(*) FROM transactions WHERE statement_id = ?", (s["id"],)).fetchone()[0]
+            all_count += cnt
+
+    # Store the annual consolidation record
+    cur = conn.execute(
+        "INSERT INTO annual_consolidations (client_id, label, quarter_ids) VALUES (?, ?, ?)",
+        (client_id, label, json.dumps(quarter_ids))
+    )
+    conn.commit()
+
+    return jsonify({"annual_id": cur.lastrowid, "label": label, "txn_count": all_count, "quarters": len(quarter_ids)})
+
+
+# ── Business types (for dropdown) ──────────────────────────────────────────
+
+@workflow_bp.route("/business-types", methods=["GET"])
+def business_types():
+    try:
+        from core.business_types import BUSINESS_TYPES
+        return jsonify([{"code": k, "label": v} for k, v in BUSINESS_TYPES.items()])
+    except Exception:
+        return jsonify([
+            {"code": "RETAIL_TRADING", "label": "Retail Trading"},
+            {"code": "SERVICE", "label": "Service Business"},
+            {"code": "PROFESSIONAL", "label": "Professional Services"},
+            {"code": "CONSTRUCTION", "label": "Construction"},
+            {"code": "HOSPITALITY", "label": "Hospitality"},
+        ])

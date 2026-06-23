@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BAS Automation Suite</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #0a0f1e;
+  color: #e8eaf0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Animated background grid */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(37,99,235,.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37,99,235,.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+  animation: gridMove 20s linear infinite;
+}
+@keyframes gridMove { to { background-position: 40px 40px; } }
+
+/* Glow orbs */
+body::after {
+  content: '';
+  position: fixed;
+  width: 600px; height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(37,99,235,.15) 0%, transparent 70%);
+  top: -100px; left: -100px;
+  animation: orbFloat 8s ease-in-out infinite alternate;
+}
+@keyframes orbFloat {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(60px, 40px); }
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  max-width: 640px;
+  padding: 40px 24px;
+}
+
+.logo-mark {
+  width: 72px; height: 72px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 28px;
+  font-size: 32px; font-weight: 900; color: #fff;
+  box-shadow: 0 0 40px rgba(37,99,235,.5), 0 0 80px rgba(37,99,235,.2);
+  animation: logoPulse 3s ease-in-out infinite;
+}
+@keyframes logoPulse {
+  0%, 100% { box-shadow: 0 0 40px rgba(37,99,235,.5), 0 0 80px rgba(37,99,235,.2); }
+  50%       { box-shadow: 0 0 60px rgba(37,99,235,.7), 0 0 120px rgba(37,99,235,.3); }
+}
+
+.eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 3px;
+  text-transform: uppercase; color: #4d7cfe;
+  margin-bottom: 12px;
+}
+
+h1 {
+  font-size: 52px; font-weight: 800; line-height: 1.1;
+  letter-spacing: -1.5px;
+  background: linear-gradient(135deg, #ffffff 0%, #93b4ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 16px;
+}
+
+.tagline {
+  font-size: 17px; color: #8b93b0; line-height: 1.6;
+  margin-bottom: 40px;
+}
+
+.features {
+  display: flex; gap: 16px; margin-bottom: 44px; flex-wrap: wrap;
+  justify-content: center;
+}
+.feature {
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 12px; color: #a0a8c0;
+  display: flex; align-items: center; gap: 8px;
+}
+.feature .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 0 8px #2563eb;
+}
+
+.cta-btn {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  border: none;
+  border-radius: 14px;
+  padding: 18px 48px;
+  color: #fff;
+  font-size: 16px; font-weight: 700;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: transform .2s, box-shadow .2s;
+  box-shadow: 0 4px 24px rgba(37,99,235,.5);
+  text-decoration: none;
+  display: inline-flex; align-items: center; gap: 10px;
+}
+.cta-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,.15), transparent);
+  opacity: 0;
+  transition: opacity .2s;
+}
+.cta-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 40px rgba(37,99,235,.7);
+}
+.cta-btn:hover::after { opacity: 1; }
+.cta-btn:active { transform: translateY(0); }
+
+.arrow {
+  font-size: 18px;
+  transition: transform .2s;
+}
+.cta-btn:hover .arrow { transform: translateX(4px); }
+
+.version-tag {
+  margin-top: 28px;
+  font-size: 11px; color: #4a5270;
+}
+.version-tag span { color: #2563eb; }
+
+/* Floating badges */
+.float-badge {
+  position: fixed;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 11px; color: #5c6888;
+  animation: floatUp 6s ease-in-out infinite;
+}
+.float-badge:nth-child(1) { bottom: 20%; left: 8%; animation-delay: 0s; }
+.float-badge:nth-child(2) { bottom: 35%; right: 8%; animation-delay: 2s; }
+.float-badge:nth-child(3) { top: 20%; right: 12%; animation-delay: 4s; }
+@keyframes floatUp {
+  0%, 100% { transform: translateY(0); opacity: .5; }
+  50%       { transform: translateY(-12px); opacity: .9; }
+}
+</style>
+</head>
+<body>
+
+<div class="float-badge">ANZ · CBA · NAB · Suncorp · Westpac</div>
+<div class="float-badge">GST / BAS · ATO Compliant</div>
+<div class="float-badge">Multi-Statement · Consolidation</div>
+
+<div class="container">
+  <div class="logo-mark">B</div>
+  <div class="eyebrow">Powered by DocParse Engine</div>
+  <h1>BAS Automation<br>Suite</h1>
+  <p class="tagline">
+    Parse multi-bank statements, allocate categories, review GST, and generate<br>
+    ATO-compliant BAS reports — all in one workflow.
+  </p>
+
+  <div class="features">
+    <div class="feature"><span class="dot"></span>5 Bank Parsers</div>
+    <div class="feature"><span class="dot"></span>Client Management</div>
+    <div class="feature"><span class="dot"></span>Multi-Statement</div>
+    <div class="feature"><span class="dot"></span>Quarter Consolidation</div>
+    <div class="feature"><span class="dot"></span>Split Window</div>
+    <div class="feature"><span class="dot"></span>AI Categorisation</div>
+    <div class="feature"><span class="dot"></span>OCR Tool</div>
+  </div>
+
+  <a href="/app" class="cta-btn">
+    Continue to App
+    <span class="arrow">→</span>
+  </a>
+
+  <div class="version-tag">DocParse v5 · <span>BAS Automation Suite</span> · ATO Worksheet Method</div>
+</div>
+
+</body>
+</html>

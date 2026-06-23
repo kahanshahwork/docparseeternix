@@ -5,9 +5,6 @@ This is the ONLY file that should change when you add a brand-new module
 (a new blueprint file). It should never grow business logic itself.
 """
 
-# MUST run before any other project imports -- core/category_engine.py reads
-# GROQ_API_KEY from os.environ at import time (module-level), not lazily, so
-# .env has to be loaded into the environment before that import happens.
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -17,6 +14,7 @@ from core.db import init_db
 from core.category_master import seed_categories
 from routes.parser_routes import parser_bp
 from routes.workflow_routes import workflow_bp
+from routes.ocr_routes import ocr_bp
 import os
 
 
@@ -29,12 +27,13 @@ def create_app():
 
     app.register_blueprint(parser_bp)
     app.register_blueprint(workflow_bp)
+    app.register_blueprint(ocr_bp)
     return app
 
 
 if __name__ == "__main__":
     app = create_app()
-    print("\n🟢  DocParse v4 (modular)  →  http://localhost:5050\n")
+    print("\n🟢  DocParse v5 (BAS Automation Suite)  →  http://localhost:5050\n")
     print("   Parsers:")
     for p in registry.list_parsers():
         print(f"     {p['bank_id']:12s} {p['display_name']}")
