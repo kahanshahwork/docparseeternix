@@ -1,17 +1,10 @@
 """
 routes/parser_routes.py — Module 1: Statement Processing Engine (HTTP layer).
 
-This is the ONLY file that should change if you're touching upload/detect/
-parse/pdf-preview behavior. It does not know about categories, GST, or P&L —
-those live in routes/workflow_routes.py. Bank-specific logic stays inside
-parsers/<bank>.py, untouched by this router.
-
 Supported upload formats:
-  .pdf  — standard text or image PDF (passed straight through)
-  .zip  — Westpac legacy ZIP-of-txt format (passed straight through)
-  .png / .jpg / .jpeg — single-page scanned image; converted to a single-page
-                        PDF on the server before detection/parsing so all
-                        existing parsers receive the same PDF interface.
+  .pdf / .zip  — passed straight through
+  .png / .jpg / .jpeg — converted to A4 PDF before detection/parsing
+  Files with no extension — detected by MIME type + magic bytes fallback
 """
 
 import os, time, uuid, base64, tempfile, threading, io
@@ -27,10 +20,22 @@ _STORE: dict[str, dict] = {}
 _LOCK = threading.Lock()
 _TTL = 1800  # 30 min
 
-# Accepted extensions (lowercase)
-_IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
-_PDF_EXTS   = {".pdf", ".zip"}
-_ALL_EXTS   = _PDF_EXTS | _IMAGE_EXTS
+_IMAGE_EXTS   = {".png", ".jpg", ".jpeg"}
+_PDF_EXTS     = {".pdf", ".zip"}
+_ALL_EXTS     = _PDF_EXTS | _IMAGE_EXTS
+
+# MIME types that indicate an image
+_IMAGE_MIMES  = {"image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/tiff"}
+
+# Magic bytes — checked against raw file header (first 8 bytes)
+_MAGIC = [
+    (b"\x89\x50\x4e\x47", "image"),   # PNG:  \x89PNG
+    (b"\xff\xd8\xff",      "image"),   # JPEG: FF D8 FF
+    (b"\x47\x49\x46\x38", "image"),   # GIF:  GIF8
+    (b"\x52\x49\x46\x46", "image"),   # WebP: RIFF
+    (b"\x25\x50\x44\x46", "pdf"),     # PDF:  %PDF
+    (b"\x50\x4b\x03\x04", "zip"),     # ZIP:  PK
+]
 
 
 def _save(path: str) -> str:
@@ -63,34 +68,62 @@ def _cleanup():
 
 
 def _ext(filename: str) -> str:
-    """Return lowercase extension including the dot, e.g. '.png'."""
-    return os.path.splitext(filename.lower())[1]
+    return os.path.splitext((filename or "").lower())[1]
+
+
+def _sniff_file_type(f) -> str:
+    """
+    Determine whether the uploaded file is 'image', 'pdf', 'zip', or 'unknown'.
+    Priority:
+      1. Filename extension (most reliable when present)
+      2. MIME type sent by the browser
+      3. Magic bytes (first 8 bytes of file content)
+    """
+    # 1. Extension
+    ext = _ext(f.filename or "")
+    if ext in _IMAGE_EXTS:
+        return "image"
+    if ext == ".pdf":
+        return "pdf"
+    if ext == ".zip":
+        return "zip"
+
+    # 2. MIME type
+    mime = (f.mimetype or f.content_type or "").lower().split(";")[0].strip()
+    if mime in _IMAGE_MIMES:
+        return "image"
+    if mime == "application/pdf":
+        return "pdf"
+    if mime in ("application/zip", "application/x-zip-compressed"):
+        return "zip"
+
+    # 3. Magic bytes
+    header = f.stream.read(8)
+    f.stream.seek(0)            # rewind so save() still works
+    for magic, ftype in _MAGIC:
+        if header[:len(magic)] == magic:
+            return ftype
+
+    return "unknown"
 
 
 def _image_to_pdf(image_path: str) -> str:
     """
-    Convert a PNG/JPG file to a single-page PDF at standard A4 size (595×842 pt)
-    and return the new temp path. Fitting into A4 keeps coordinate space consistent
-    with text-PDF statements so parser pixel thresholds stay valid when the file is
-    re-rasterised for OCR.
-
-    Uses img2pdf with an explicit A4 page layout; falls back to Pillow if unavailable.
-    The caller is responsible for deleting the returned file.
+    Convert a PNG/JPG file to A4 PDF (595×842 pt).
+    Returns new temp path. Caller must delete.
     """
     pdf_tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     pdf_tmp.close()
     try:
         import img2pdf
-        # A4 in pts: 595 × 842. img2pdf.get_layout_fun fits the image inside the page.
-        a4 = (img2pdf.in_to_pt(8.27), img2pdf.in_to_pt(11.69))   # ≈ 595×842 pt
+        a4 = (img2pdf.in_to_pt(8.27), img2pdf.in_to_pt(11.69))
         layout = img2pdf.get_layout_fun(a4)
         with open(image_path, "rb") as img_f, open(pdf_tmp.name, "wb") as out_f:
             out_f.write(img2pdf.convert(img_f, layout_fun=layout))
     except Exception:
-        # Fallback: Pillow — resize to A4 at 300 DPI then save as PDF
         from PIL import Image
         img = Image.open(image_path).convert("RGB")
-        a4_px = (int(8.27 * 300), int(11.69 * 300))   # 2481 × 3507 px at 300 DPI
+        a4_px = (int(8.27 * 300), int(11.69 * 300))
         img = img.resize(a4_px, Image.LANCZOS)
         img.save(pdf_tmp.name, format="PDF", resolution=300)
     return pdf_tmp.name
@@ -98,15 +131,19 @@ def _image_to_pdf(image_path: str) -> str:
 
 def _save_upload(f) -> tuple[str, bool]:
     """
-    Save an uploaded FileStorage to a temp file.
-    If it's an image, convert it to PDF first.
-    Returns (tmp_path, is_converted_image).
+    Save uploaded file to temp. Images are converted to A4 PDF first.
+    Returns (tmp_path, is_image).
+    Raises ValueError for unsupported types.
     """
-    fname = f.filename or ""
-    ext   = _ext(fname)
+    ftype = _sniff_file_type(f)
 
-    if ext in _IMAGE_EXTS:
-        # Save image first, then convert to PDF
+    if ftype == "unknown":
+        raise ValueError(
+            "Unsupported file type. Upload a PDF, ZIP, PNG, or JPG."
+        )
+
+    if ftype == "image":
+        ext = _ext(f.filename or "") or ".png"   # default extension for magic-detected images
         img_tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
         f.save(img_tmp.name)
         img_tmp.close()
@@ -118,12 +155,13 @@ def _save_upload(f) -> tuple[str, bool]:
             except OSError:
                 pass
         return pdf_path, True
-    else:
-        suffix = ".zip" if ext == ".zip" else ".pdf"
-        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-        f.save(tmp.name)
-        tmp.close()
-        return tmp.name, False
+
+    # PDF or ZIP
+    suffix = ".zip" if ftype == "zip" else ".pdf"
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    f.save(tmp.name)
+    tmp.close()
+    return tmp.name, False
 
 
 # ─────────────────────────── Routes ───────────────────────────────────────────
@@ -145,41 +183,36 @@ def list_parsers():
 
 @parser_bp.route("/detect", methods=["POST"])
 def detect():
-    """Identifies WHICH BANK only. Accepts PDF, ZIP, PNG, JPG/JPEG.
-    Images are converted to single-page PDF before detection."""
     if "pdf" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
 
     f = request.files["pdf"]
-    if _ext(f.filename or "") not in _ALL_EXTS:
-        return jsonify({
-            "error": "Unsupported file type. Upload a PDF, ZIP, PNG, or JPG."
-        }), 400
-
     try:
         tmp_path, is_image = _save_upload(f)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"Could not process file: {e}"}), 500
 
     result = registry.detect(tmp_path)
     result["tmp_token"] = _save(tmp_path)
     if is_image:
-        result["source_type"] = "image"   # hint to frontend if needed
+        result["source_type"] = "image"
     return jsonify(result)
 
 
 @parser_bp.route("/parse", methods=["POST"])
 def parse():
     if request.content_type and "application/json" in request.content_type:
-        body     = request.json or {}
+        body      = request.json or {}
         tmp_token = body.get("tmp_token")
-        bank_id  = body.get("bank_id")
+        bank_id   = body.get("bank_id")
     else:
         tmp_token = request.form.get("tmp_token")
-        bank_id  = request.form.get("bank_id")
+        bank_id   = request.form.get("bank_id")
 
-    tmp_path   = None
-    owns_file  = False
+    tmp_path  = None
+    owns_file = False
 
     if tmp_token:
         tmp_path = _load(tmp_token)
@@ -187,12 +220,10 @@ def parse():
             return jsonify({"error": "Session expired — please re-upload the file"}), 400
     elif "pdf" in request.files:
         f = request.files["pdf"]
-        if _ext(f.filename or "") not in _ALL_EXTS:
-            return jsonify({
-                "error": "Unsupported file type. Upload a PDF, ZIP, PNG, or JPG."
-            }), 400
         try:
             tmp_path, _ = _save_upload(f)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
         except Exception as e:
             return jsonify({"error": f"Could not process file: {e}"}), 500
         owns_file = True
@@ -228,11 +259,6 @@ def parse():
 
 @parser_bp.route("/pdf_page")
 def pdf_page():
-    """Renders a page image with optional row highlights.
-    Works for both PDF files and image-converted-to-PDF files stored in _STORE.
-    `highlights` (plural, JSON array of tops) draws faint blue bands for all rows.
-    `highlight`  (singular) draws the selected row in amber on top.
-    """
     token    = request.args.get("tmp_token", "")
     page_num = int(request.args.get("page", "1"))
     highlight  = request.args.get("highlight", "")
