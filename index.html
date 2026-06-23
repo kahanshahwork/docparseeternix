@@ -261,14 +261,45 @@ td { padding: 8px 12px; font-size: 12px; }
       <aside class="parse-sidebar" id="parseSidebar">
         <div class="sb-section">
           <div class="sb-label">Upload</div>
-          <div class="error-box" id="errorBox"></div>
-          <div class="drop-zone" id="dropZone">
-            <div class="drop-icon" style="font-size:28px; letter-spacing:-1px; opacity:.4; font-family:var(--mono); color:var(--accent);">↑</div>
-            <div class="drop-hint"><strong>Click or drop</strong> a bank statement PDF here</div>
+          <!-- Upload mode tabs -->
+          <div style="display:flex; gap:0; margin-bottom:10px; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;">
+            <button id="tabPdf" onclick="setUploadTab('pdf')"
+              style="flex:1; padding:6px 0; font-size:11px; font-weight:600; border:none; cursor:pointer; background:var(--accent); color:#fff;">
+              📄 PDF / ZIP
+            </button>
+            <button id="tabImage" onclick="setUploadTab('image')"
+              style="flex:1; padding:6px 0; font-size:11px; font-weight:600; border:none; cursor:pointer; background:var(--surface2); color:var(--text-dim);">
+              🖼 Image / OCR
+            </button>
           </div>
-          <input type="file" id="fileInput" accept=".pdf,.zip,.jpg,.jpeg,.png" style="display:none"/>
+
+          <div class="error-box" id="errorBox"></div>
+
+          <!-- PDF tab content -->
+          <div id="uploadPdfTab">
+            <div class="drop-zone" id="dropZone">
+              <div class="drop-icon" style="font-size:28px; letter-spacing:-1px; opacity:.4; font-family:var(--mono); color:var(--accent);">↑</div>
+              <div class="drop-hint"><strong>Click or drop</strong> a bank statement PDF here</div>
+            </div>
+            <input type="file" id="fileInput" accept=".pdf,.zip" style="display:none"/>
+          </div>
+
+          <!-- Image/OCR tab content -->
+          <div id="uploadImageTab" style="display:none;">
+            <div class="drop-zone" id="dropZoneImage" style="border-color:var(--accent); opacity:.85;">
+              <div class="drop-icon" style="font-size:28px; opacity:.4; font-family:var(--mono); color:var(--accent);">🖼</div>
+              <div class="drop-hint"><strong>Click or drop</strong> a scanned image here</div>
+              <div style="font-size:10px; color:var(--muted); margin-top:4px;">PNG · JPG · JPEG · image PDF</div>
+            </div>
+            <input type="file" id="fileInputImage" accept=".png,.jpg,.jpeg,.pdf" style="display:none"/>
+            <div style="margin-top:8px; padding:8px 10px; background:var(--accent-lo); border-radius:var(--radius); font-size:11px; color:var(--accent); line-height:1.5;">
+              ⚠ OCR mode: transactions are extracted via Tesseract. Dates and amounts may need manual correction on the Approve screen.
+            </div>
+          </div>
+
+          <!-- Shared file-chosen row -->
           <div class="file-chosen" id="fileChosen">
-            <span class="file-icon">📄</span>
+            <span class="file-icon" id="fileIconLabel">📄</span>
             <span class="file-name" id="fileNameLabel"></span>
             <button class="file-remove" id="removeFile" title="Remove">✕</button>
           </div>
@@ -750,18 +781,64 @@ dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classL
 dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag"));
 dropZone.addEventListener("drop", e => { e.preventDefault(); dropZone.classList.remove("drag"); if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
 fileInput.addEventListener("change", () => { if (fileInput.files.length) handleFile(fileInput.files[0]); });
-removeFile.addEventListener("click", (e) => {
-  e.stopPropagation();
+function resetFile() {
   selectedFile = null; detectedBank = null; tmpToken = null;
-  fileChosen.style.display = "none"; dropZone.style.display = "";
+  fileChosen.style.display = "none";
+  dropZone.style.display = activeUploadTab === 'pdf' ? '' : 'none';
+  dropZoneImage.style.display = activeUploadTab === 'image' ? '' : 'none';
   autoChip.className = "auto-chip"; autoLabel.textContent = "Upload a file to auto-detect";
   parseBtn.disabled = true;
+  fileInput.value = ''; fileInputImage.value = '';
+}
+
+removeFile.addEventListener("click", (e) => {
+  e.stopPropagation();
+  resetFile();
 });
 
+// ── Upload tab switching ───────────────────────────────────────────────────
+let activeUploadTab = 'pdf';
+
+function setUploadTab(tab) {
+  activeUploadTab = tab;
+  const isPdf = tab === 'pdf';
+
+  document.getElementById('tabPdf').style.background   = isPdf ? 'var(--accent)' : 'var(--surface2)';
+  document.getElementById('tabPdf').style.color        = isPdf ? '#fff'          : 'var(--text-dim)';
+  document.getElementById('tabImage').style.background = isPdf ? 'var(--surface2)' : 'var(--accent)';
+  document.getElementById('tabImage').style.color      = isPdf ? 'var(--text-dim)' : '#fff';
+
+  document.getElementById('uploadPdfTab').style.display   = isPdf ? '' : 'none';
+  document.getElementById('uploadImageTab').style.display = isPdf ? 'none' : '';
+
+  // Reset any chosen file when switching tabs
+  resetFile();
+}
+
+// Wire up the image drop-zone and file input
+const dropZoneImage   = document.getElementById('dropZoneImage');
+const fileInputImage  = document.getElementById('fileInputImage');
+
+dropZoneImage.addEventListener('click', () => fileInputImage.click());
+dropZoneImage.addEventListener('dragover', e => { e.preventDefault(); dropZoneImage.classList.add('drag-over'); });
+dropZoneImage.addEventListener('dragleave', ()  => dropZoneImage.classList.remove('drag-over'));
+dropZoneImage.addEventListener('drop', e => {
+  e.preventDefault(); dropZoneImage.classList.remove('drag-over');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInputImage.addEventListener('change', () => {
+  if (fileInputImage.files.length) handleFile(fileInputImage.files[0]);
+});
+
+// ── File handling ─────────────────────────────────────────────────────────────
 async function handleFile(file) {
   selectedFile = file;
   fileNameLabel.textContent = file.name;
-  fileChosen.style.display = "flex"; dropZone.style.display = "none";
+  document.getElementById('fileIconLabel').textContent = activeUploadTab === 'image' ? '🖼' : '📄';
+  fileChosen.style.display = "flex";
+  // Hide whichever drop zone is active
+  if (activeUploadTab === 'image') dropZoneImage.style.display = "none";
+  else dropZone.style.display = "none";
   hideError();
   autoLabel.textContent = "Detecting…";
   autoChip.className = "auto-chip";
@@ -773,7 +850,8 @@ async function handleFile(file) {
     if (data.bank_id) {
       detectedBank = data.bank_id;
       autoChip.className = "auto-chip detected";
-      autoLabel.textContent = `${data.display_name} (${Math.round(data.confidence*100)}% confidence)`;
+      const ocrNote = data.source_type === 'image' ? ' · OCR' : '';
+      autoLabel.textContent = `${data.display_name} (${Math.round(data.confidence*100)}% confidence${ocrNote})`;
     } else {
       detectedBank = null;
       autoChip.className = "auto-chip uncertain";
