@@ -24,17 +24,15 @@ _IMAGE_EXTS   = {".png", ".jpg", ".jpeg"}
 _PDF_EXTS     = {".pdf", ".zip"}
 _ALL_EXTS     = _PDF_EXTS | _IMAGE_EXTS
 
-# MIME types that indicate an image
 _IMAGE_MIMES  = {"image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/tiff"}
 
-# Magic bytes — checked against raw file header (first 8 bytes)
 _MAGIC = [
-    (b"\x89\x50\x4e\x47", "image"),   # PNG:  \x89PNG
-    (b"\xff\xd8\xff",      "image"),   # JPEG: FF D8 FF
-    (b"\x47\x49\x46\x38", "image"),   # GIF:  GIF8
-    (b"\x52\x49\x46\x46", "image"),   # WebP: RIFF
-    (b"\x25\x50\x44\x46", "pdf"),     # PDF:  %PDF
-    (b"\x50\x4b\x03\x04", "zip"),     # ZIP:  PK
+    (b"\x89\x50\x4e\x47", "image"),   # PNG
+    (b"\xff\xd8\xff",      "image"),   # JPEG
+    (b"\x47\x49\x46\x38", "image"),   # GIF
+    (b"\x52\x49\x46\x46", "image"),   # WebP
+    (b"\x25\x50\x44\x46", "pdf"),     # PDF
+    (b"\x50\x4b\x03\x04", "zip"),     # ZIP
 ]
 
 
@@ -72,14 +70,6 @@ def _ext(filename: str) -> str:
 
 
 def _sniff_file_type(f) -> str:
-    """
-    Determine whether the uploaded file is 'image', 'pdf', 'zip', or 'unknown'.
-    Priority:
-      1. Filename extension (most reliable when present)
-      2. MIME type sent by the browser
-      3. Magic bytes (first 8 bytes of file content)
-    """
-    # 1. Extension
     ext = _ext(f.filename or "")
     if ext in _IMAGE_EXTS:
         return "image"
@@ -88,7 +78,6 @@ def _sniff_file_type(f) -> str:
     if ext == ".zip":
         return "zip"
 
-    # 2. MIME type
     mime = (f.mimetype or f.content_type or "").lower().split(";")[0].strip()
     if mime in _IMAGE_MIMES:
         return "image"
@@ -97,9 +86,8 @@ def _sniff_file_type(f) -> str:
     if mime in ("application/zip", "application/x-zip-compressed"):
         return "zip"
 
-    # 3. Magic bytes
     header = f.stream.read(8)
-    f.stream.seek(0)            # rewind so save() still works
+    f.stream.seek(0)
     for magic, ftype in _MAGIC:
         if header[:len(magic)] == magic:
             return ftype
@@ -108,10 +96,6 @@ def _sniff_file_type(f) -> str:
 
 
 def _image_to_pdf(image_path: str) -> str:
-    """
-    Convert a PNG/JPG file to A4 PDF (595×842 pt).
-    Returns new temp path. Caller must delete.
-    """
     pdf_tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     pdf_tmp.close()
     try:
@@ -130,20 +114,13 @@ def _image_to_pdf(image_path: str) -> str:
 
 
 def _save_upload(f) -> tuple[str, bool]:
-    """
-    Save uploaded file to temp. Images are converted to A4 PDF first.
-    Returns (tmp_path, is_image).
-    Raises ValueError for unsupported types.
-    """
     ftype = _sniff_file_type(f)
 
     if ftype == "unknown":
-        raise ValueError(
-            "Unsupported file type. Upload a PDF, ZIP, PNG, or JPG."
-        )
+        raise ValueError("Unsupported file type. Upload a PDF, ZIP, PNG, or JPG.")
 
     if ftype == "image":
-        ext = _ext(f.filename or "") or ".png"   # default extension for magic-detected images
+        ext = _ext(f.filename or "") or ".png"
         img_tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
         f.save(img_tmp.name)
         img_tmp.close()
@@ -156,7 +133,6 @@ def _save_upload(f) -> tuple[str, bool]:
                 pass
         return pdf_path, True
 
-    # PDF or ZIP
     suffix = ".zip" if ftype == "zip" else ".pdf"
     tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     f.save(tmp.name)
@@ -164,17 +140,24 @@ def _save_upload(f) -> tuple[str, bool]:
     return tmp.name, False
 
 
-# ─────────────────────────── Routes ───────────────────────────────────────────
+# ── Routes ─────────────────────────────────────────────────────────────────
 
 @parser_bp.route("/")
 def index():
+    """Landing page."""
     return send_from_directory(APP_ROOT, "landing.html")
+
+
+@parser_bp.route("/app")
+def app_page():
+    """Main application."""
+    return send_from_directory(APP_ROOT, "index.html")
 
 
 @parser_bp.route("/split-view")
 def split_view():
+    """Split window view for side-by-side statement comparison."""
     return send_from_directory(APP_ROOT, "split.html")
-    return send_from_directory(APP_ROOT, "index.html")
 
 
 @parser_bp.route("/workflow")
