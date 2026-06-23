@@ -1255,12 +1255,17 @@ parseBtn.addEventListener("click", async () => {
 function renderParseResult(data) {
   allTxns = data.transactions || []; allAmbiguous = data.ambiguous || []; ambDecisions = {};
   parseMeta = { bank_id: data.bank_id, filename: selectedFile?.name || "", tmp_token: data.tmp_token };
-  pageCount = data.page_count || 1;
+  pageCount = (data.meta && data.meta.pages) || data.page_count || 1;
 
-  document.getElementById("totalCount").textContent  = allTxns.length;
-  document.getElementById("totalCredits").textContent = fmt(data.total_credits);
-  document.getElementById("totalDebits").textContent  = fmt(data.total_debits);
-  document.getElementById("netVal").textContent       = fmt((data.total_credits||0) + (data.total_debits||0));
+  // Compute totals from the transactions array (parsers don't return pre-summed totals)
+  const totalCredits = allTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  const totalDebits  = allTxns.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+  const net          = totalCredits + totalDebits;
+
+  document.getElementById("totalCount").textContent   = allTxns.length;
+  document.getElementById("totalCredits").textContent = fmt(totalCredits);
+  document.getElementById("totalDebits").textContent  = fmt(totalDebits);
+  document.getElementById("netVal").textContent       = fmt(net);
   document.getElementById("statsSection").style.display = "block";
 
   if (allAmbiguous.length) { ambCount.textContent = allAmbiguous.length; ambBadge.style.display = "block"; }
@@ -1500,10 +1505,101 @@ document.getElementById('splitModalOpen').addEventListener('click', () => {
 });
 
 function openSplitWindow(stmtId) {
-  // Open a new browser window/tab showing the approve page for the given statement
-  // We store the target in sessionStorage and open a special split view
-  sessionStorage.setItem('splitStmtId', stmtId);
-  window.open('/split-view?stmt_id=' + stmtId, 'bas_split_' + stmtId, 'width=900,height=700,resizable=yes,scrollbars=yes');
+  // Build a self-contained mini page in a new window using the API
+  const url = `/app?split=1&stmt_id=${stmtId}`;
+  const win = window.open('', 'bas_split_' + stmtId, 'width=960,height=720,resizable=yes,scrollbars=yes');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<title>Split View — Statement #${stmtId}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Inter',system-ui,sans-serif;background:#f4f5f7;color:#1c2030;}
+.header{background:#1c2030;color:#fff;padding:12px 18px;display:flex;align-items:center;gap:12px;}
+.header h2{font-size:13px;font-weight:700;}
+.header .sub{font-size:11px;color:#8b93a3;margin-left:auto;}
+.toolbar{padding:8px 14px;background:#fff;border-bottom:1px solid #e3e5eb;display:flex;gap:8px;align-items:center;}
+.toolbar input{flex:1;padding:5px 9px;border:1px solid #d6d9e1;border-radius:8px;font-size:12px;outline:none;}
+.toolbar select{padding:5px 7px;border:1px solid #d6d9e1;border-radius:8px;font-size:12px;}
+.tcount{font-size:10.5px;color:#8b93a3;}
+.stats{display:flex;gap:8px;padding:10px 14px;background:#fff;border-bottom:1px solid #e3e5eb;}
+.stat{flex:1;border:1px solid #e3e5eb;border-radius:8px;padding:8px 10px;}
+.stat .v{font-size:15px;font-weight:700;font-family:monospace;}
+.stat .l{font-size:9px;color:#8b93a3;text-transform:uppercase;letter-spacing:.5px;}
+.pos{color:#15803d;}.neg{color:#dc2626;}
+.tw{overflow-y:auto;height:calc(100vh - 150px);}
+table{width:100%;border-collapse:collapse;}
+thead th{background:#fff;padding:7px 10px;font-size:9.5px;font-weight:700;text-transform:uppercase;color:#8b93a3;border-bottom:1px solid #e3e5eb;position:sticky;top:0;text-align:left;}
+tbody tr{border-bottom:1px solid #e3e5eb;}
+tbody tr:hover{background:#f7f8fa;}
+td{padding:7px 10px;font-size:11.5px;}
+.amt{text-align:right;font-family:monospace;}
+.badge{display:inline-block;padding:1px 5px;border-radius:4px;font-size:8.5px;font-weight:700;}
+.cr{background:rgba(21,128,61,.08);color:#15803d;}
+.dr{background:rgba(220,38,38,.08);color:#dc2626;}
+.loading{padding:40px;text-align:center;color:#8b93a3;font-size:13px;}
+</style></head><body>
+<div class="header">
+  <div style="width:24px;height:24px;border-radius:6px;background:#2563eb;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;color:#fff;">B</div>
+  <h2>Split View — Statement #${stmtId}</h2>
+  <span class="sub" id="sub">Loading…</span>
+</div>
+<div class="stats" id="stats" style="display:none;">
+  <div class="stat"><div class="v" id="sc">—</div><div class="l">Transactions</div></div>
+  <div class="stat"><div class="v pos" id="scr">—</div><div class="l">Credits</div></div>
+  <div class="stat"><div class="v neg" id="sdb">—</div><div class="l">Debits</div></div>
+  <div class="stat"><div class="v" id="snet">—</div><div class="l">Net</div></div>
+</div>
+<div class="toolbar">
+  <input type="text" id="srch" placeholder="Search description…" oninput="filter()"/>
+  <select id="filt" onchange="filter()"><option value="all">All</option><option value="cr">Credits</option><option value="dr">Debits</option></select>
+  <span class="tcount" id="tc"></span>
+</div>
+<div class="tw"><div class="loading" id="loading">Loading transactions…</div>
+<table id="tbl" style="display:none;">
+<thead><tr><th>ID</th><th>Date</th><th>Description</th><th>Pg</th><th style="text-align:right">Amount</th><th>Type</th></tr></thead>
+<tbody id="tb"></tbody></table></div>
+<script>
+let all=[];
+function fmt(n){n=n||0;return(n<0?'-$':'$')+Math.abs(n).toLocaleString('en-AU',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+fetch('http://'+location.hostname+':5050/api/statements/${stmtId}/transactions')
+  .then(r=>r.json()).then(txns=>{
+  all=txns;
+  const cr=txns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+  const db=txns.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0);
+  document.getElementById('sub').textContent=txns.length+' transactions';
+  document.getElementById('sc').textContent=txns.length;
+  document.getElementById('scr').textContent=fmt(cr);
+  document.getElementById('sdb').textContent=fmt(db);
+  document.getElementById('snet').textContent=fmt(cr+db);
+  document.getElementById('stats').style.display='flex';
+  document.getElementById('loading').style.display='none';
+  document.getElementById('tbl').style.display='table';
+  render(txns);
+}).catch(e=>{document.getElementById('loading').textContent='Error: '+e.message;});
+function render(txns){
+  document.getElementById('tc').textContent=txns.length+' rows';
+  document.getElementById('tb').innerHTML=txns.map(t=>\`<tr>
+    <td style="font-family:monospace;font-size:9.5px;color:#8b93a3;">\${esc(t.transaction_id)}</td>
+    <td style="font-family:monospace;font-size:10.5px;">\${esc(t.date)}</td>
+    <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="\${esc(t.description)}">\${esc(t.description)}</td>
+    <td style="color:#8b93a3;font-size:10.5px;">\${t.source_page||''}</td>
+    <td class="amt \${t.amount>0?'pos':'neg'}">\${fmt(t.amount)}</td>
+    <td><span class="badge \${t.amount>0?'cr':'dr'}">\${t.amount>0?'CR':'DR'}</span></td>
+  </tr>\`).join('');
+}
+function filter(){
+  const s=document.getElementById('srch').value.toLowerCase();
+  const f=document.getElementById('filt').value;
+  const rows=all.filter(t=>{
+    if(s&&!t.description?.toLowerCase().includes(s))return false;
+    if(f==='cr'&&t.amount<=0)return false;
+    if(f==='dr'&&t.amount>=0)return false;
+    return true;
+  });
+  render(rows);
+}
+</script></body></html>`);
+  win.document.close();
 }
 
 // ══════════════════════════════════════════════════════════════════════════
