@@ -90,8 +90,29 @@ def _extract_num_from_col(s: str) -> str:
     # Must contain a decimal point to be a monetary amount
     if _PLAIN_NUM_RE.match(s.replace(",", "")) or _DOLLAR_RE.match(s):
         return s
-    m = re.search(r"[+\-−]?\$?([\d,]+\.\d{2})", s)
+    # Fallback: search for an amount, but require it ends at a word boundary
+    # (prevents matching '6.57' inside '6.57%' which is an interest rate, not an amount)
+    m = re.search(r"[+\-−]?\$?[\d,]+\.\d{2}(?![%\d])", s)
     return m.group(0) if m else ""
+
+
+def _negate_dr_balance(bal_str: str) -> Optional[float]:
+    """
+    Parse a balance that may have a DR suffix (loan/mortgage accounts).
+    DR means the account is in debit — i.e. the customer owes this amount.
+    We negate it so balance-delta sign verification works correctly:
+      prev=-329926.50, curr=-331767.49 → delta=-1840.99 → debit (interest) ✓
+    Returns the signed float, or None if unparseable.
+    """
+    if not bal_str:
+        return None
+    s = bal_str.strip()
+    is_dr = bool(re.search(r"\bDR\b", s, re.I))
+    num_str = re.sub(r"\b(DR|CR)\b", "", s, flags=re.I).strip()
+    val = _parse_num(num_str)
+    if val is None:
+        return None
+    return -abs(val) if is_dr else abs(val)
 
 
 # ── Date parsing ──────────────────────────────────────────────────────────────
@@ -161,9 +182,9 @@ def _find_header_row(words: list) -> Optional[list]:
     if cur: bands.append(cur)
 
     HEADER_WORDS = {"date", "transaction", "details", "description", "debit", "credit",
-                    "withdrawals", "deposits", "balance"}
+                    "debits", "credits", "withdrawals", "deposits", "balance"}
     NEED_DATE = {"date", "description"}
-    NEED_ANY  = {"debit", "credit", "withdrawals", "deposits", "balance"}
+    NEED_ANY  = {"debit", "credit", "debits", "credits", "withdrawals", "deposits", "balance"}
 
     for i, band in enumerate(bands):
         for candidate in ([band + bands[i+1]] if i+1 < len(bands) and abs(bands[i+1][0]["top"] - band[0]["top"]) <= 18 else []) + [band]:
@@ -196,10 +217,11 @@ def _compute_col_bounds(header: list) -> dict:
         "details": "desc",
         "description": "desc",
         "debit": "debit",
+        "debits": "debit",      # e.g. ANZ Loan Statement header
         "withdrawals": "debit",
-        # Loan format: "debit($aud)" → debit
         "debit($aud)": "debit",
         "credit": "credit",
+        "credits": "credit",    # e.g. ANZ Loan Statement header
         "deposits": "credit",
         "credit($aud)": "credit",
         "balance": "balance",
@@ -290,7 +312,10 @@ def _parse_standard_5col(pages: list, start_year: int, is_reverse: bool) -> list
             if not pending_date:
                 return
 
-            bal_val = _parse_num(bal_str) if bal_str else None
+            # Use DR-aware balance parsing: loan accounts show balance as "329,926.50 DR"
+            # We negate DR balances so sign_from_balance_delta works correctly:
+            #   prev=-329926.50, curr=-331767.49 → delta=-1840.99 → debit ✓
+            bal_val = _negate_dr_balance(bal_str) if bal_str else None
             dv = _parse_num(deb_str) if deb_str else None
             cv = _parse_num(cred_str) if cred_str else None
 
@@ -323,7 +348,8 @@ def _parse_standard_5col(pages: list, start_year: int, is_reverse: bool) -> list
             desc_str = cols.get("desc", "").strip()
             deb_str  = _extract_num_from_col(cols.get("debit", ""))
             cred_str = _extract_num_from_col(cols.get("credit", ""))
-            bal_str  = _extract_num_from_col(cols.get("balance", ""))
+            # Pass raw balance string so emit() can detect DR suffix for loan accounts
+            bal_str  = cols.get("balance", "").strip()
 
             full_text = " ".join(w["text"] for w in clean_row)
             if _SKIP_RE.match(full_text) or _SKIP_RE.match(desc_str):

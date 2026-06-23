@@ -1543,7 +1543,10 @@ function fromInputDate(d) {
 }
 
 async function loadApprove() {
-  if (!statementId) return;
+  if (!statementId) {
+    document.getElementById("approveBody").innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--muted);">No statement loaded. Go to Upload &amp; Parse (Step 1) to parse a statement first, or use Client Management to resume a saved statement.</td></tr>';
+    return;
+  }
   document.getElementById("approveSub").textContent = `Statement #${statementId}`;
   const r = await fetch(`/api/statements/${statementId}/transactions`);
   const d = await r.json();
