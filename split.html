@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Split View — BAS Automation Suite</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', system-ui, sans-serif; background: #f4f5f7; color: #1c2030; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.header { background: #1c2030; color: #fff; padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.header .mark { width: 24px; height: 24px; border-radius: 6px; background: #2563eb; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 11px; color: #fff; flex-shrink: 0; }
+.header h2 { font-size: 13px; font-weight: 700; }
+.header .sub { font-size: 11px; color: #8b93a3; margin-left: auto; }
+.stats { display: flex; gap: 8px; padding: 8px 12px; background: #fff; border-bottom: 1px solid #e3e5eb; flex-shrink: 0; }
+.stat { flex: 1; border: 1px solid #e3e5eb; border-radius: 8px; padding: 7px 10px; }
+.stat .v { font-size: 14px; font-weight: 700; font-family: monospace; }
+.stat .l { font-size: 8.5px; color: #8b93a3; text-transform: uppercase; letter-spacing: .5px; margin-top: 1px; }
+.pos { color: #15803d; } .neg { color: #dc2626; }
+.toolbar { padding: 7px 12px; background: #fff; border-bottom: 1px solid #e3e5eb; display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.toolbar input { flex: 1; padding: 5px 9px; border: 1px solid #d6d9e1; border-radius: 8px; font-size: 12px; outline: none; }
+.toolbar input:focus { border-color: #2563eb; }
+.toolbar select { padding: 5px 7px; border: 1px solid #d6d9e1; border-radius: 8px; font-size: 12px; background: #fff; color: #1c2030; }
+.tcount { font-size: 10.5px; color: #8b93a3; white-space: nowrap; }
+.tw { flex: 1; overflow-y: auto; min-height: 0; }
+table { width: 100%; border-collapse: collapse; }
+thead th { background: #fff; padding: 7px 10px; font-size: 9.5px; font-weight: 700; text-transform: uppercase; color: #8b93a3; border-bottom: 1px solid #e3e5eb; position: sticky; top: 0; z-index: 2; text-align: left; white-space: nowrap; }
+tbody tr { border-bottom: 1px solid #e3e5eb; }
+tbody tr:hover { background: #f7f8fa; }
+td { padding: 7px 10px; font-size: 11.5px; }
+.amt { text-align: right; font-family: monospace; }
+.badge { display: inline-block; padding: 1px 5px; border-radius: 4px; font-size: 8.5px; font-weight: 700; }
+.cr { background: rgba(21,128,61,.08); color: #15803d; }
+.dr { background: rgba(220,38,38,.08); color: #dc2626; }
+.loading { padding: 40px; text-align: center; color: #8b93a3; font-size: 13px; }
+.error { padding: 20px; color: #dc2626; font-size: 12px; background: rgba(220,38,38,.06); margin: 12px; border-radius: 8px; border: 1px solid rgba(220,38,38,.2); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="mark">B</div>
+  <h2 id="title">Split View</h2>
+  <span class="sub" id="sub">Loading…</span>
+</div>
+
+<div class="stats" id="stats" style="display:none;">
+  <div class="stat"><div class="v" id="sc">—</div><div class="l">Transactions</div></div>
+  <div class="stat"><div class="v pos" id="scr">—</div><div class="l">Credits</div></div>
+  <div class="stat"><div class="v neg" id="sdb">—</div><div class="l">Debits</div></div>
+  <div class="stat"><div class="v" id="snet">—</div><div class="l">Net</div></div>
+</div>
+
+<div class="toolbar">
+  <input type="text" id="srch" placeholder="Search description…"/>
+  <select id="filt">
+    <option value="all">All</option>
+    <option value="cr">Credits only</option>
+    <option value="dr">Debits only</option>
+  </select>
+  <span class="tcount" id="tc"></span>
+</div>
+
+<div class="tw">
+  <div class="loading" id="loading">Loading transactions…</div>
+  <div id="errorBox" class="error" style="display:none;"></div>
+  <table id="tbl" style="display:none;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Date</th>
+        <th>Description</th>
+        <th>Pg</th>
+        <th style="text-align:right">Amount</th>
+        <th>Type</th>
+      </tr>
+    </thead>
+    <tbody id="tb"></tbody>
+  </table>
+</div>
+
+<script>
+  let allTxns = [];
+
+  function fmt(n) {
+    n = n || 0;
+    return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Get stmt_id from URL query string
+  const params = new URLSearchParams(window.location.search);
+  const stmtId = params.get('stmt_id');
+
+  if (!stmtId) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('errorBox').style.display = 'block';
+    document.getElementById('errorBox').textContent = 'No statement ID in URL. Open this page via Split Window from the main app.';
+  } else {
+    document.getElementById('title').textContent = 'Split View — Statement #' + stmtId;
+    document.title = 'Split View — Statement #' + stmtId;
+
+    fetch('/api/statements/' + stmtId + '/transactions')
+      .then(function(r) { return r.json(); })
+      .then(function(txns) {
+        allTxns = txns;
+
+        var cr  = txns.filter(function(t) { return t.amount > 0; }).reduce(function(s, t) { return s + t.amount; }, 0);
+        var db  = txns.filter(function(t) { return t.amount < 0; }).reduce(function(s, t) { return s + t.amount; }, 0);
+        var net = cr + db;
+
+        document.getElementById('sub').textContent   = txns.length + ' transactions';
+        document.getElementById('sc').textContent    = txns.length;
+        document.getElementById('scr').textContent   = fmt(cr);
+        document.getElementById('sdb').textContent   = fmt(db);
+        document.getElementById('snet').textContent  = fmt(net);
+        document.getElementById('snet').className    = 'v ' + (net >= 0 ? 'pos' : 'neg');
+        document.getElementById('stats').style.display = 'flex';
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('tbl').style.display = 'table';
+
+        render(txns);
+      })
+      .catch(function(e) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('errorBox').style.display = 'block';
+        document.getElementById('errorBox').textContent = 'Error loading statement: ' + e.message;
+      });
+  }
+
+  function render(txns) {
+    document.getElementById('tc').textContent = txns.length + ' rows';
+    document.getElementById('tb').innerHTML = txns.map(function(t) {
+      var isPos = t.amount > 0;
+      return '<tr>' +
+        '<td style="font-family:monospace;font-size:9.5px;color:#8b93a3;">' + esc(t.transaction_id) + '</td>' +
+        '<td style="font-family:monospace;font-size:10.5px;">' + esc(t.date) + '</td>' +
+        '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(t.description) + '">' + esc(t.description) + '</td>' +
+        '<td style="color:#8b93a3;font-size:10.5px;">' + (t.source_page || '') + '</td>' +
+        '<td class="amt ' + (isPos ? 'pos' : 'neg') + '">' + fmt(t.amount) + '</td>' +
+        '<td><span class="badge ' + (isPos ? 'cr' : 'dr') + '">' + (isPos ? 'CR' : 'DR') + '</span></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  document.getElementById('srch').addEventListener('input', filter);
+  document.getElementById('filt').addEventListener('change', filter);
+
+  function filter() {
+    var s = document.getElementById('srch').value.toLowerCase();
+    var f = document.getElementById('filt').value;
+    var rows = allTxns.filter(function(t) {
+      if (s && !(t.description || '').toLowerCase().includes(s)) return false;
+      if (f === 'cr' && t.amount <= 0) return false;
+      if (f === 'dr' && t.amount >= 0) return false;
+      return true;
+    });
+    render(rows);
+  }
+</script>
+
+</body>
+</html>

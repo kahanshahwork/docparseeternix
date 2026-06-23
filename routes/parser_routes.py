@@ -171,8 +171,9 @@ def index():
     return send_from_directory(APP_ROOT, "landing.html")
 
 
-@parser_bp.route("/app")
-def app_page():
+@parser_bp.route("/split-view")
+def split_view():
+    return send_from_directory(APP_ROOT, "split.html")
     return send_from_directory(APP_ROOT, "index.html")
 
 
