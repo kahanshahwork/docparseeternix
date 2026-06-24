@@ -738,6 +738,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <!-- Tabs -->
   <div class="vision-tabs">
     <div class="vision-tab active" data-vtab="nvidia">✦ NVIDIA AI Playground</div>
+    <div class="vision-tab" data-vtab="json">📋 JSON Import</div>
     <div class="vision-tab" data-vtab="ocr">🔍 OCR Extractor</div>
   </div>
 
@@ -820,7 +821,85 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     </div>
   </div>
 
-  <!-- ── TAB 2: OCR Extractor (original) ───────────────────────────────── -->
+  <!-- ── TAB 2: JSON Import ─────────────────────────────────────────────── -->
+  <div class="vision-tab-panel" id="vtab-json">
+    <div style="display:flex;flex:1;min-height:0;gap:0;">
+
+      <!-- Left: paste + controls -->
+      <div style="width:340px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;">
+
+        <div class="sb-section">
+          <div class="sb-label">How to use</div>
+          <div style="font-size:10.5px;color:var(--text-dim);line-height:1.7;">
+            Paste a JSON array of transactions below. Each object needs at minimum:<br>
+            <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Date</code>
+            <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Description</code>
+            <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Debit</code> or
+            <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Credit</code>
+            or <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Amount</code><br><br>
+            Start pasting from the <strong>[ opening bracket</strong> of the transactions array — account metadata is ignored automatically.
+          </div>
+        </div>
+
+        <div class="sb-section">
+          <div class="sb-label">Statement Name <span style="color:var(--muted);font-weight:400;">(optional)</span></div>
+          <input type="text" id="jsonStmtName" class="form-input" placeholder="e.g. Westpac — 16 Nirvana Jul 2025" style="font-size:11px;"/>
+        </div>
+
+        <div class="sb-section" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <div class="sb-label" style="margin:0;">Paste JSON</div>
+            <button class="btn-sec" id="jsonClearBtn" style="font-size:10px;padding:3px 8px;">Clear</button>
+          </div>
+          <textarea id="jsonPasteArea" placeholder='Paste JSON array here…
+[
+  {
+    "Date": "01 Jul 2025",
+    "Description": "PAYMENT BY AUTHORITY ...",
+    "Debit": "-$269.50",
+    "Credit": ""
+  },
+  ...
+]' style="flex:1;min-height:200px;width:100%;border:1px solid var(--border2);border-radius:8px;padding:10px;font-family:var(--mono);font-size:10.5px;line-height:1.6;color:var(--text);background:var(--surface2);resize:none;outline:none;"></textarea>
+        </div>
+
+        <div class="sb-section">
+          <div id="jsonErrorBox" style="display:none;background:var(--red-lo);border:1px solid rgba(220,38,38,.25);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--red);margin-bottom:8px;"></div>
+          <div id="jsonPreviewStats" style="display:none;background:var(--green-lo);border:1px solid rgba(21,128,61,.2);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--green);margin-bottom:8px;"></div>
+          <button class="btn parse-btn" id="jsonConvertBtn" style="width:100%;">
+            <span id="jsonConvertText">📋 Convert to Table →</span>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Right: live preview -->
+      <div style="flex:1;display:flex;flex-direction:column;background:var(--surface2);overflow:hidden;">
+        <div style="padding:14px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:10px;">
+          <span style="font-size:12px;font-weight:700;color:var(--text-dim);">Preview</span>
+          <span id="jsonPreviewCount" style="font-size:10.5px;color:var(--muted);"></span>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:12px 14px;">
+          <div id="jsonPreviewEmpty" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px;">Paste JSON on the left to preview transactions</div>
+          <table id="jsonPreviewTable" style="display:none;width:100%;border-collapse:collapse;font-size:11px;">
+            <thead>
+              <tr style="background:var(--surface3);">
+                <th style="padding:6px 10px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;">#</th>
+                <th style="padding:6px 10px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;">Date</th>
+                <th style="padding:6px 10px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Description</th>
+                <th style="padding:6px 10px;text-align:right;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;">Amount</th>
+                <th style="padding:6px 10px;text-align:center;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Type</th>
+              </tr>
+            </thead>
+            <tbody id="jsonPreviewBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── TAB 3: OCR Extractor (original) ───────────────────────────────── -->
   <div class="vision-tab-panel" id="vtab-ocr">
     <div class="ocr-layout">
       <div class="ocr-upload-panel">
@@ -2062,6 +2141,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
       tab.classList.add('active');
       document.getElementById('vtab-' + tab.dataset.vtab).classList.add('active');
       if (tab.dataset.vtab === 'ocr') checkOcrStatus();
+      if (tab.dataset.vtab === 'json') jsonPreviewUpdate();
     });
   });
 
@@ -2231,7 +2311,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
         </div>
         <div class="nv-progress-bar"><div class="nv-progress-fill" id="nvProgressFill" style="width:10%"></div></div>
         <div class="nv-timer-row">
-          <span id="nvPhaseLabel">Connecting to BOT...</span>
+          <span id="nvPhaseLabel">Connecting to NVIDIA…</span>
           <span id="nvElapsed">0s</span>
         </div>
       </div>`;
@@ -2255,7 +2335,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     const phases = ['connect', 'reason', 'stream'];
     const progress = { connect: '15%', reason: '45%', stream: '80%' };
     const labels = {
-      connect: 'Connecting to BOT...',
+      connect: 'Connecting to NVIDIA…',
       reason:  'Model is reasoning — this takes 10–30s…',
       stream:  'Generating response…',
     };
@@ -2407,6 +2487,179 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
   }
 
     // ══════════════════════════════════════════════════════════════════════════
+  // JSON IMPORT
+  // ══════════════════════════════════════════════════════════════════════════
+  const jsonPasteArea   = document.getElementById('jsonPasteArea');
+  const jsonConvertBtn  = document.getElementById('jsonConvertBtn');
+  const jsonConvertText = document.getElementById('jsonConvertText');
+  const jsonErrorBox    = document.getElementById('jsonErrorBox');
+  const jsonPreviewStats= document.getElementById('jsonPreviewStats');
+  const jsonPreviewTable= document.getElementById('jsonPreviewTable');
+  const jsonPreviewBody = document.getElementById('jsonPreviewBody');
+  const jsonPreviewEmpty= document.getElementById('jsonPreviewEmpty');
+  const jsonPreviewCount= document.getElementById('jsonPreviewCount');
+  const jsonClearBtn    = document.getElementById('jsonClearBtn');
+
+  // Parse a money string like "-$1,650.00" or "$25,000.00" or "1650" → float
+  function parseMoney(s) {
+    if (!s && s !== 0) return null;
+    const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
+    return isNaN(n) ? null : n;
+  }
+
+  // Normalise one raw JSON object → canonical txn {transaction_id, date, description, amount, source_page}
+  function normaliseRow(raw, idx) {
+    // Date — try common keys
+    const date = raw['Date'] || raw['date'] || raw['DATE'] || '';
+    // Description
+    const desc = raw['Description'] || raw['description'] || raw['DESCRIPTION'] || raw['Narration'] || raw['details'] || '';
+    // Amount — prefer explicit Debit/Credit split, fallback to Amount
+    let amount = null;
+    if (raw['Debit'] || raw['Credit']) {
+      const debit  = parseMoney(raw['Debit']  || raw['debit']  || '');
+      const credit = parseMoney(raw['Credit'] || raw['credit'] || '');
+      if (credit) amount = Math.abs(credit);
+      else if (debit) amount = -Math.abs(debit);
+    } else {
+      amount = parseMoney(raw['Amount'] || raw['amount'] || raw['AMOUNT'] || '');
+    }
+    return { transaction_id: idx + 1, date, description: desc, amount: amount || 0, source_page: null };
+  }
+
+  // Extract transactions array from whatever was pasted (array or object with Transactions key)
+  function extractTransactions(raw) {
+    if (Array.isArray(raw)) {
+      // Could be array of txns directly, or array of account objects
+      if (raw.length && raw[0]['Transactions']) {
+        return raw[0]['Transactions'];
+      }
+      // Direct array of txns — check if has Date/Description
+      if (raw.length && (raw[0]['Date'] || raw[0]['date'])) return raw;
+      // Maybe wrapper object is one item
+      return raw;
+    }
+    if (raw['Transactions']) return raw['Transactions'];
+    if (raw['transactions']) return raw['transactions'];
+    return [];
+  }
+
+  let jsonParsedTxns = [];
+
+  function jsonPreviewUpdate() {
+    const raw = jsonPasteArea.value.trim();
+    jsonErrorBox.style.display = 'none';
+    jsonPreviewStats.style.display = 'none';
+    if (!raw) {
+      jsonPreviewEmpty.style.display = 'flex';
+      jsonPreviewTable.style.display = 'none';
+      jsonPreviewCount.textContent = '';
+      jsonParsedTxns = [];
+      return;
+    }
+    let parsed;
+    try { parsed = JSON.parse(raw); }
+    catch(e) {
+      // Try wrapping as array if user forgot brackets
+      try { parsed = JSON.parse('[' + raw + ']'); }
+      catch { parsed = null; }
+    }
+    if (!parsed) {
+      jsonErrorBox.textContent = '⚠ Invalid JSON — check for missing brackets or trailing commas.';
+      jsonErrorBox.style.display = 'block';
+      jsonPreviewEmpty.style.display = 'flex';
+      jsonPreviewTable.style.display = 'none';
+      jsonParsedTxns = [];
+      return;
+    }
+    const rawTxns = extractTransactions(parsed);
+    if (!rawTxns.length) {
+      jsonErrorBox.textContent = '⚠ No transactions found. Make sure you\'re pasting a [ ] array of transaction objects.';
+      jsonErrorBox.style.display = 'block';
+      jsonPreviewEmpty.style.display = 'flex';
+      jsonPreviewTable.style.display = 'none';
+      jsonParsedTxns = [];
+      return;
+    }
+    jsonParsedTxns = rawTxns.map(normaliseRow);
+    const credits = jsonParsedTxns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+    const debits  = jsonParsedTxns.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0);
+    const net     = credits + debits;
+    jsonPreviewStats.textContent = `✓ ${jsonParsedTxns.length} transactions · Credits ${fmt(credits)} · Debits ${fmt(Math.abs(debits))} · Net ${fmt(net)}`;
+    jsonPreviewStats.style.display = 'block';
+    jsonPreviewCount.textContent = jsonParsedTxns.length + ' transactions';
+    // Render preview table
+    jsonPreviewBody.innerHTML = jsonParsedTxns.map(t => `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:5px 10px;color:var(--muted);font-family:var(--mono);">${t.transaction_id}</td>
+        <td style="padding:5px 10px;font-family:var(--mono);white-space:nowrap;">${esc(t.date)}</td>
+        <td style="padding:5px 10px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.description)}">${esc(t.description)}</td>
+        <td style="padding:5px 10px;text-align:right;font-family:var(--mono);color:${t.amount>=0?'var(--green)':'var(--red)'};">${fmt(t.amount)}</td>
+        <td style="padding:5px 10px;text-align:center;"><span class="badge ${t.amount>=0?'cr':'dr'}">${t.amount>=0?'CR':'DR'}</span></td>
+      </tr>`).join('');
+    jsonPreviewEmpty.style.display = 'none';
+    jsonPreviewTable.style.display = 'table';
+  }
+
+  // Live preview on paste/type (debounced)
+  let jsonDebounce;
+  jsonPasteArea.addEventListener('input', () => {
+    clearTimeout(jsonDebounce);
+    jsonDebounce = setTimeout(jsonPreviewUpdate, 400);
+  });
+
+  jsonClearBtn.addEventListener('click', () => {
+    jsonPasteArea.value = '';
+    jsonPreviewUpdate();
+  });
+
+  jsonConvertBtn.addEventListener('click', () => {
+    if (!jsonParsedTxns.length) { jsonPreviewUpdate(); return; }
+
+    // Populate the global allTxns used by the parse page
+    allTxns = jsonParsedTxns;
+    allAmbiguous = [];
+    ambDecisions = {};
+    parseMeta = { bank_id: 'json-import', filename: 'JSON Import' };
+    statementId = null;
+
+    // Update statement name input on parse page if provided
+    const name = document.getElementById('jsonStmtName').value.trim();
+    if (name) document.getElementById('stmtNameInput').value = name;
+
+    // Populate stats panel on parse page
+    const credits = allTxns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+    const debits  = allTxns.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0);
+    document.getElementById('totalCount').textContent   = allTxns.length;
+    document.getElementById('totalCredits').textContent = fmt(credits);
+    document.getElementById('totalDebits').textContent  = fmt(Math.abs(debits));
+    document.getElementById('netVal').textContent       = fmt(credits + debits);
+    document.getElementById('statsSection').style.display = 'block';
+    document.getElementById('sidebarFooter').textContent  = `JSON Import · ${allTxns.length} transactions`;
+
+    // Show the JSON source badge in detection chip
+    document.getElementById('autoLabel').textContent = '📋 JSON Import';
+    document.getElementById('autoChip').querySelector('.dot').style.background = 'var(--accent)';
+
+    // Show placeholder in PDF panel instead of PDF
+    const pdfContent = document.getElementById('pdfContent') || document.querySelector('#pdfPanel .pdf-inner') || document.getElementById('pdfPanel');
+    if (pdfContent) {
+      pdfContent.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;color:var(--text-dim);padding:20px;text-align:center;">
+        <div style="font-size:36px;">📋</div>
+        <div style="font-size:13px;font-weight:600;">JSON Import</div>
+        <div style="font-size:11px;line-height:1.6;">No PDF to display — this statement was imported directly from JSON.<br>All ${allTxns.length} transactions are loaded and ready for workflow.</div>
+      </div>`;
+    }
+
+    // Render table and navigate to parse page
+    renderTable(allTxns);
+    emptyState.style.display = 'none';
+    tableWrap.style.display = 'block';
+    document.getElementById('toolbar').style.display = 'flex';
+    unlockNav('parse');
+    goPage('parse');
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
   // OCR TOOL (original)
   // ══════════════════════════════════════════════════════════════════════════
   const dropZone  = document.getElementById('ocrDropZone');
