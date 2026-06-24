@@ -257,6 +257,16 @@ def nvidia_chat():
         # Ensure it's a data URI
         if not image_b64.startswith("data:"):
             image_b64 = f"data:{image_mime};base64,{image_b64}"
+
+        # Log image size for debugging
+        img_kb = len(image_b64) * 3 // 4 // 1024
+        print(f"[NVIDIA] Image size: ~{img_kb} KB, mime: {image_mime}", flush=True)
+
+        # Guard: if image is still too large, reject early with clear message
+        if img_kb > 4096:
+            return jsonify({"error": f"Image too large ({img_kb} KB). Please use a smaller or lower-resolution image (max ~4 MB)."}), 413
+
+        # Build multimodal content — text FIRST, then image (NVIDIA requires this order)
         messages[-1] = {
             "role": "user",
             "content": [
@@ -264,17 +274,17 @@ def nvidia_chat():
                 {"type": "image_url", "image_url": {"url": image_b64}},
             ]
         }
+        print(f"[NVIDIA] Sending multimodal message, text: {text_content[:80]!r}", flush=True)
 
     payload = {
         "model": _NVIDIA_MODEL,
         "messages": messages,
         "temperature": 0.6,
         "top_p": 0.95,
-        "max_tokens": 8192,
+        "max_tokens": 32768,   # must be high — model uses budget for reasoning first
         "stream": True,
-        "extra_body": {
-            "chat_template_kwargs": {"enable_thinking": False},
-        },
+        "chat_template_kwargs": {"enable_thinking": True},
+        "stream_options": {"include_usage": False},
     }
 
     import urllib.request
@@ -303,11 +313,34 @@ def nvidia_chat():
         try:
             for raw_line in resp:
                 line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line or line == "data: [DONE]":
-                    if line == "data: [DONE]":
-                        yield "data: [DONE]\n\n"
+                if not line:
                     continue
-                if line.startswith("data: "):
+                if line == "data: [DONE]":
+                    yield "data: [DONE]\n\n"
+                    break
+                if not line.startswith("data: "):
+                    continue
+                raw_json = line[6:].strip()
+                try:
+                    chunk = json.loads(raw_json)
+                    choice = chunk.get("choices", [{}])[0]
+                    delta  = choice.get("delta", {})
+                    # Emit reasoning_content as a special prefixed token
+                    # so the frontend can render a collapsible thinking section
+                    rc = delta.get("reasoning_content") or ""
+                    tc = delta.get("content") or ""
+                    if rc:
+                        # Wrap reasoning so frontend can detect and style it
+                        patched = dict(chunk)
+                        patched["choices"] = [{
+                            **choice,
+                            "delta": {"content": "\u200b" + rc, "reasoning": True}
+                        }]
+                        yield "data: " + json.dumps(patched) + "\n\n"
+                    if tc:
+                        yield line + "\n\n"
+                except Exception:
+                    # Pass raw line through if unparseable
                     yield line + "\n\n"
         finally:
             resp.close()

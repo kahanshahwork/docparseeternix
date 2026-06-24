@@ -2233,16 +2233,33 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
   function attachNvImage(file) {
     const reader = new FileReader();
     reader.onload = e => {
-      nvAttachedImage = { dataUrl: e.target.result, mime: file.type || 'image/png', name: file.name };
-      // Show in input bar
-      nvImgThumb.src = e.target.result;
-      nvImgName.textContent = file.name;
-      nvImgBar.style.display = 'block';
-      // Show in sidebar
-      nvFileTh.src = e.target.result;
-      nvFileNm.textContent = file.name;
-      nvFilePrev.style.display = 'block';
-      nvDropZone.style.display = 'none';
+      // Resize + compress via canvas before storing — NVIDIA API limit is ~180KB base64
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1120; // px on longest side — keeps quality for OCR
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else        { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        // Use JPEG at 0.88 quality — good balance for text/OCR
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+        const kb = Math.round(dataUrl.length * 0.75 / 1024);
+        nvAttachedImage = { dataUrl, mime: 'image/jpeg', name: file.name };
+        // Show in input bar
+        nvImgThumb.src = dataUrl;
+        nvImgName.textContent = `${file.name} (${kb} KB)`;
+        nvImgBar.style.display = 'block';
+        // Show in sidebar
+        nvFileTh.src = dataUrl;
+        nvFileNm.textContent = `${file.name} · ${w}×${h} · ${kb} KB`;
+        nvFilePrev.style.display = 'block';
+        nvDropZone.style.display = 'none';
+      };
+      img.src = e.target.result;
     };
     reader.readAsDataURL(file);
   }
