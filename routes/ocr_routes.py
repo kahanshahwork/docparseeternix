@@ -217,3 +217,101 @@ def extract():
             os.unlink(tmp.name)
         except OSError:
             pass
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# NVIDIA AI VISION — Nemotron-3-Nano-Omni multimodal playground
+# ══════════════════════════════════════════════════════════════════════════
+
+import base64
+import json
+
+_NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
+_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+_NVIDIA_MODEL    = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+
+
+@ocr_bp.route("/nvidia/chat", methods=["POST"])
+def nvidia_chat():
+    """
+    Proxy endpoint for NVIDIA Nemotron-3-Nano-Omni multimodal chat.
+    Body (JSON):
+      messages  — full conversation history (OpenAI format)
+      image_b64 — optional base64 image data URI for the latest user turn
+      image_mime— optional mime type e.g. "image/png"
+    Returns streaming SSE text or JSON on error.
+    """
+    if not _NVIDIA_API_KEY:
+        return jsonify({"error": "NVIDIA_API_KEY not set in .env"}), 500
+
+    body = request.get_json(force=True) or {}
+    messages = body.get("messages", [])
+    image_b64  = body.get("image_b64")   # data-URI base64 string
+    image_mime = body.get("image_mime", "image/png")
+
+    # If an image is attached to the latest user message, convert it
+    # to the OpenAI vision content block format
+    if image_b64 and messages and messages[-1]["role"] == "user":
+        last = messages[-1]
+        text_content = last["content"] if isinstance(last["content"], str) else ""
+        # Ensure it's a data URI
+        if not image_b64.startswith("data:"):
+            image_b64 = f"data:{image_mime};base64,{image_b64}"
+        messages[-1] = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": text_content},
+                {"type": "image_url", "image_url": {"url": image_b64}},
+            ]
+        }
+
+    payload = {
+        "model": _NVIDIA_MODEL,
+        "messages": messages,
+        "temperature": 0.6,
+        "top_p": 0.95,
+        "max_tokens": 8192,
+        "stream": True,
+        "extra_body": {
+            "chat_template_kwargs": {"enable_thinking": False},
+        },
+    }
+
+    import urllib.request
+    import urllib.error
+
+    req = urllib.request.Request(
+        f"{_NVIDIA_BASE_URL}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {_NVIDIA_API_KEY}",
+            "NVCF-POLL-SECONDS": "300",
+        },
+        method="POST",
+    )
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=120)
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode("utf-8", errors="replace")
+        return jsonify({"error": f"NVIDIA API error {e.code}: {err_body}"}), e.code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    def generate():
+        try:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line or line == "data: [DONE]":
+                    if line == "data: [DONE]":
+                        yield "data: [DONE]\n\n"
+                    continue
+                if line.startswith("data: "):
+                    yield line + "\n\n"
+        finally:
+            resp.close()
+
+    from flask import Response
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
