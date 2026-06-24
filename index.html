@@ -2511,8 +2511,11 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
         removeProcCard();
         appendNvBubble('assistant', '(No response received — try again)');
       } else if (!firstAnswerToken && reasonText) {
+        // Model put everything in reasoning_content and sent empty content.
+        // Use the reasoning text directly as the answer.
         removeProcCard();
-        appendNvBubble('assistant', '⚠ No response received. Try again or use a clearer image.');
+        textNode = appendNvBubble('assistant', reasonText);
+        fullText = reasonText;
       }
 
       nvHistory.push({ role: 'user', content: promptText });
