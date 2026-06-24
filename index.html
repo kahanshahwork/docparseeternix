@@ -2353,7 +2353,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     const progress = { connect: '15%', reason: '45%', stream: '80%' };
     const labels = {
       connect: 'Connecting to NVIDIA…',
-      reason:  'Model is reasoning — this takes 10–30s…',
+      reason:  'Processing your request…',
       stream:  'Generating response…',
     };
     phases.forEach((p, i) => {
@@ -2471,25 +2471,8 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
             const rawContent = (delta.content || '').replace(/^\u200b/, '');
 
             if (isReasoning && rawContent) {
-              // Reasoning / thinking tokens
+              // Thinking disabled — silently discard reasoning tokens
               reasonText += rawContent;
-              if (!reasonWrap) {
-                // First reasoning token — create thinking bubble
-                nvEmptyState.style.display = 'none';
-                reasonWrap = document.createElement('div');
-                reasonWrap.className = 'nvidia-msg assistant';
-                reasonWrap.innerHTML = `
-                  <div class="avatar" style="opacity:.5;">🧠</div>
-                  <div style="flex:1;min-width:0;">
-                    <div style="font-size:10px;color:var(--muted);margin-bottom:4px;cursor:pointer;user-select:none;" id="nvThinkToggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.textContent=this.nextElementSibling.style.display===''?'▼ Thinking…':'▶ Thinking (collapsed)'">▼ Thinking…</div>
-                    <div id="nvThinkBody" style="background:var(--surface3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:10.5px;font-family:var(--mono);line-height:1.6;color:var(--text-dim);white-space:pre-wrap;max-height:180px;overflow-y:auto;word-break:break-word;"></div>
-                  </div>`;
-                nvMessages.insertBefore(reasonWrap, null);
-                nvMessages.appendChild(reasonWrap);
-              }
-              const thinkBody = document.getElementById('nvThinkBody');
-              if (thinkBody) { thinkBody.textContent = reasonText; thinkBody.scrollTop = thinkBody.scrollHeight; }
-              nvMessages.scrollTop = nvMessages.scrollHeight;
 
             } else if (!isReasoning && rawContent) {
               // Actual answer tokens
@@ -2513,9 +2496,8 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
         removeProcCard();
         appendNvBubble('assistant', '(No response received — try again)');
       } else if (!firstAnswerToken && reasonText) {
-        // Reasoning came but answer was empty — token budget exhausted
         removeProcCard();
-        appendNvBubble('assistant', '⚠ Model ran out of token budget during reasoning. The thinking trace is shown above. Try a simpler prompt or smaller image.');
+        appendNvBubble('assistant', '⚠ No response received. Try again or use a clearer image.');
       }
 
       nvHistory.push({ role: 'user', content: promptText });

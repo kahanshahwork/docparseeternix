@@ -281,10 +281,9 @@ def nvidia_chat():
         "messages": messages,
         "temperature": 0.6,
         "top_p": 0.95,
-        "max_tokens": 32768,   # must be high — model uses budget for reasoning first
+        "max_tokens": 32768,
         "stream": True,
-        "chat_template_kwargs": {"enable_thinking": True},
-        "stream_options": {"include_usage": False},
+        "chat_template_kwargs": {"enable_thinking": False},
     }
 
     import urllib.request
