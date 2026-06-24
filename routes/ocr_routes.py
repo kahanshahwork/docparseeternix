@@ -281,9 +281,9 @@ def nvidia_chat():
         "messages": messages,
         "temperature": 0.6,
         "top_p": 0.95,
-        "max_tokens": 32768,
+        "max_tokens": 65536,
         "stream": True,
-        "chat_template_kwargs": {"enable_thinking": False},
+        "chat_template_kwargs": {"enable_thinking": True},
     }
 
     import urllib.request

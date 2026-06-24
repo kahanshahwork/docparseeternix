@@ -2471,8 +2471,23 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
             const rawContent = (delta.content || '').replace(/^\u200b/, '');
 
             if (isReasoning && rawContent) {
-              // Thinking disabled — silently discard reasoning tokens
               reasonText += rawContent;
+              if (!reasonWrap) {
+                nvEmptyState.style.display = 'none';
+                reasonWrap = document.createElement('div');
+                reasonWrap.className = 'nvidia-msg assistant';
+                reasonWrap.innerHTML = `
+                  <div class="avatar" style="opacity:.5;">🧠</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:10px;color:var(--muted);margin-bottom:4px;cursor:pointer;user-select:none;"
+                      onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'':'none';this.textContent=b.style.display===''?'▼ Thinking…':'▶ Thinking (tap to expand)'">▼ Thinking…</div>
+                    <div id="nvThinkBody" style="background:var(--surface3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:10.5px;font-family:var(--mono);line-height:1.6;color:var(--text-dim);white-space:pre-wrap;max-height:160px;overflow-y:auto;word-break:break-word;"></div>
+                  </div>`;
+                nvMessages.appendChild(reasonWrap);
+              }
+              const thinkBody = document.getElementById('nvThinkBody');
+              if (thinkBody) { thinkBody.textContent = reasonText; thinkBody.scrollTop = thinkBody.scrollHeight; }
+              nvMessages.scrollTop = nvMessages.scrollHeight;
 
             } else if (!isReasoning && rawContent) {
               // Actual answer tokens
@@ -2582,17 +2597,34 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     const date = raw['Date'] || raw['date'] || raw['DATE'] || '';
     // Description
     const desc = raw['Description'] || raw['description'] || raw['DESCRIPTION'] || raw['Narration'] || raw['details'] || '';
-    // Amount — prefer explicit Debit/Credit split, fallback to Amount
+
+    // Amount — handle every combination the model might output:
+    // • separate debit/credit fields (any case)
+    // • single amount field
+    // • debit already negative (e.g. -269.50), credit already positive
     let amount = null;
-    if (raw['Debit'] || raw['Credit']) {
-      const debit  = parseMoney(raw['Debit']  || raw['debit']  || '');
-      const credit = parseMoney(raw['Credit'] || raw['credit'] || '');
-      if (credit) amount = Math.abs(credit);
-      else if (debit) amount = -Math.abs(debit);
-    } else {
-      amount = parseMoney(raw['Amount'] || raw['amount'] || raw['AMOUNT'] || '');
+
+    const debitRaw  = raw['Debit']  ?? raw['debit']  ?? raw['DEBIT']  ?? null;
+    const creditRaw = raw['Credit'] ?? raw['credit'] ?? raw['CREDIT'] ?? null;
+    const amountRaw = raw['Amount'] ?? raw['amount'] ?? raw['AMOUNT'] ?? null;
+
+    if (debitRaw !== null || creditRaw !== null) {
+      const debitVal  = parseMoney(debitRaw);
+      const creditVal = parseMoney(creditRaw);
+      // Credit → positive, Debit → negative
+      // parseMoney preserves sign from the raw string, so -269.50 stays -269.50
+      if (creditVal !== null && creditVal !== 0) {
+        amount = Math.abs(creditVal);           // credits always positive
+      } else if (debitVal !== null && debitVal !== 0) {
+        amount = -Math.abs(debitVal);           // debits always negative
+      } else {
+        amount = 0;
+      }
+    } else if (amountRaw !== null) {
+      amount = parseMoney(amountRaw);
     }
-    return { transaction_id: idx + 1, date, description: desc, amount: amount || 0, source_page: null };
+
+    return { transaction_id: idx + 1, date, description: desc, amount: amount ?? 0, source_page: null };
   }
 
   // Extract transactions array from whatever was pasted (array or object with Transactions key)
