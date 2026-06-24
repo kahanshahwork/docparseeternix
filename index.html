@@ -1843,37 +1843,50 @@ async function loadGroupedView() {
       </div>
       ${groups.map((g, gi) => {
         const domId = g.dominant_category_id;
-        const selOpts = '<option value=""' + (!domId?' selected':'') + '>Uncategorized</option>' +
-          categories.map(c => `<option value="${c.id}"${c.id===domId?' selected':''}>${esc(c.name)}</option>`).join('');
         const txnIds = (g.transactions || []).map(t => t.id);
         const groupUid = `grp-${sectionLabel.replace(/\W/g,'')}-${gi}`;
-        // Individual transaction rows (hidden by default)
-        const txnRows = (g.transactions || []).map(t => `
-          <tr style="background:var(--surface);">
-            <td style="padding:5px 14px;font-family:var(--mono);font-size:10.5px;color:var(--text-dim);white-space:nowrap;">${esc(t.date||'—')}</td>
-            <td style="padding:5px 14px;font-size:10.5px;color:var(--text);">${esc(t.description||'')}</td>
-            <td style="padding:5px 14px;font-family:var(--mono);font-size:10.5px;text-align:right;color:${t.amount>=0?'var(--green)':'var(--red)'};">${fmt(t.amount)}</td>
-          </tr>`).join('');
+        const grpSelOpts = '<option value="">Uncategorized</option>' +
+          categories.map(c => `<option value="${c.id}"${c.id===domId?' selected':''}}>${esc(c.name)}</option>`).join('');
+        const txnRows = (g.transactions || []).map(t => {
+          const txnCatId = t.category_id || '';
+          const txnSelOpts = '<option value="">—</option>' +
+            categories.map(c => `<option value="${c.id}"${c.id==txnCatId?' selected':''}}>${esc(c.name)}</option>`).join('');
+          return `
+            <tr style="background:var(--surface);border-bottom:1px solid var(--border);">
+              <td style="padding:5px 10px;font-family:var(--mono);font-size:10.5px;color:var(--text-dim);white-space:nowrap;width:90px;">${esc(t.date||'—')}</td>
+              <td style="padding:5px 10px;font-size:10.5px;color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.description||'')}}">${esc(t.description||'')}</td>
+              <td style="padding:5px 10px;font-family:var(--mono);font-size:10.5px;text-align:right;white-space:nowrap;color:${t.amount>=0?'var(--green)':'var(--red)'};">${fmt(t.amount)}</td>
+              <td style="padding:5px 10px;width:160px;">
+                <select data-txn-id="${t.id}"
+                  style="width:100%;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:10.5px;background:var(--surface2);color:var(--text);"
+                  onchange="categorizeSingleInGroup(${t.id}, this.value, this)">
+                  ${txnSelOpts}
+                </select>
+              </td>
+            </tr>`;
+        }).join('');
         return `
           <div style="margin-bottom:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
             <div style="padding:10px 14px;background:var(--surface2);display:flex;align-items:center;gap:10px;">
-              <button onclick="toggleGroup('${groupUid}')" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 4px;line-height:1;" title="Expand / collapse">
+              <button onclick="toggleGroup('${groupUid}')" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 4px;line-height:1;">
                 <span id="${groupUid}-icon">▶</span>
               </button>
               <span style="flex:1;font-size:12px;font-weight:700;">${esc(g.group_key)}</span>
               <span style="font-size:10px;color:var(--muted);">${g.count} txns · ${fmt(g.total)}</span>
+              <span style="font-size:10px;color:var(--muted);margin-right:2px;">Bulk:</span>
               <select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);"
-                onchange="categorizeGroup([${txnIds.join(',')}], this.value, this)">
-                ${selOpts}
+                onchange="categorizeGroup([${txnIds.join(',')}], this.value, this, '${groupUid}')">
+                ${grpSelOpts}
               </select>
             </div>
             <div id="${groupUid}-rows" style="display:none;">
               <table style="width:100%;border-collapse:collapse;">
                 <thead>
                   <tr style="background:var(--surface3);">
-                    <th style="padding:4px 14px;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);text-align:left;width:90px;">Date</th>
-                    <th style="padding:4px 14px;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);text-align:left;">Description</th>
-                    <th style="padding:4px 14px;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);text-align:right;">Amount</th>
+                    <th style="padding:4px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);text-align:left;">Date</th>
+                    <th style="padding:4px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);text-align:left;">Description</th>
+                    <th style="padding:4px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);text-align:right;">Amount</th>
+                    <th style="padding:4px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);text-align:left;">Category</th>
                   </tr>
                 </thead>
                 <tbody>${txnRows}</tbody>
@@ -1885,12 +1898,9 @@ async function loadGroupedView() {
 
   const debitHtml  = renderGroupSection(r.debit,  '💸 Money Out (Debits)',  'var(--red)');
   const creditHtml = renderGroupSection(r.credit, '💰 Money In (Credits)', 'var(--green)');
-
-  if (!debitHtml && !creditHtml) {
-    gv.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;">No groups available.</div>';
-  } else {
-    gv.innerHTML = debitHtml + creditHtml;
-  }
+  gv.innerHTML = (debitHtml || creditHtml)
+    ? debitHtml + creditHtml
+    : '<div style="color:var(--muted);padding:20px;text-align:center;">No groups available.</div>';
 }
 
 function toggleGroup(uid) {
@@ -1902,18 +1912,40 @@ function toggleGroup(uid) {
   if (icon) icon.textContent = open ? '▼' : '▶';
 }
 
-async function categorizeGroup(txnIds, catId, selectEl) {
+async function categorizeSingleInGroup(txnId, catId, selectEl) {
+  const catIdInt = catId ? parseInt(catId) : null;
+  await fetch(`/api/statements/${statementId}/categorize`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ transaction_ids: [txnId], category_id: catIdInt })
+  });
+  const t = wfTransactions.find(x => x.id === txnId);
+  if (t) t.category_id = catIdInt;
+  selectEl.style.borderColor = 'var(--green)';
+  setTimeout(() => selectEl.style.borderColor = 'var(--border)', 1200);
+  const done = wfTransactions.filter(t => t.category_id).length;
+  document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
+}
+
+async function categorizeGroup(txnIds, catId, selectEl, groupUid) {
   if (!catId || !txnIds.length) return;
   const catIdInt = parseInt(catId);
   await fetch(`/api/statements/${statementId}/categorize`, {
     method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({ transaction_ids: txnIds, category_id: catIdInt })
   });
-  // Update local wfTransactions cache so progress counter stays accurate
   txnIds.forEach(id => {
     const t = wfTransactions.find(x => x.id === id);
     if (t) t.category_id = catIdInt;
   });
+  // Sync all individual dropdowns in this group
+  if (groupUid) {
+    const rowsDiv = document.getElementById(groupUid + '-rows');
+    if (rowsDiv) rowsDiv.querySelectorAll('select[data-txn-id]').forEach(sel => {
+      sel.value = catId;
+      sel.style.borderColor = 'var(--green)';
+      setTimeout(() => sel.style.borderColor = 'var(--border)', 1200);
+    });
+  }
   const done = wfTransactions.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
 }
