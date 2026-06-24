@@ -2500,8 +2500,40 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
   const jsonPreviewCount= document.getElementById('jsonPreviewCount');
   const jsonClearBtn    = document.getElementById('jsonClearBtn');
 
-  // Parse a money string like "-$1,650.00" or "$25,000.00" or "1650" → float
-  function parseMoney(s) {
+  // Aggressively extract JSON from messy text (markdown fences, explanations, trailing commas, etc.)
+  function extractJsonFromText(text) {
+    // 1. Strip markdown code fences  ```json ... ``` or ``` ... ```
+    text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
+
+    // 2. Try direct parse first
+    try { return JSON.parse(text.trim()); } catch {}
+
+    // 3. Find the first [ and last ] — extract just that block
+    const firstBracket = text.indexOf('[');
+    const lastBracket  = text.lastIndexOf(']');
+    if (firstBracket !== -1 && lastBracket > firstBracket) {
+      const candidate = text.slice(firstBracket, lastBracket + 1);
+      // Fix trailing commas before } or ] (common LLM output issue)
+      const fixed = candidate
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']');
+      try { return JSON.parse(fixed); } catch {}
+    }
+
+    // 4. Find first { and last } — maybe it's an object not wrapped in array
+    const firstBrace = text.indexOf('{');
+    const lastBrace  = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const candidate = text.slice(firstBrace, lastBrace + 1)
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']');
+      try { return JSON.parse(candidate); } catch {}
+      // Try wrapping in array
+      try { return JSON.parse('[' + candidate + ']'); } catch {}
+    }
+
+    return null;
+  }
     if (!s && s !== 0) return null;
     const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
     return isNaN(n) ? null : n;
@@ -2556,13 +2588,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
       jsonParsedTxns = [];
       return;
     }
-    let parsed;
-    try { parsed = JSON.parse(raw); }
-    catch(e) {
-      // Try wrapping as array if user forgot brackets
-      try { parsed = JSON.parse('[' + raw + ']'); }
-      catch { parsed = null; }
-    }
+    const parsed = extractJsonFromText(raw);
     if (!parsed) {
       jsonErrorBox.textContent = '⚠ Invalid JSON — check for missing brackets or trailing commas.';
       jsonErrorBox.style.display = 'block';
