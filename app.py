@@ -15,6 +15,7 @@ from core.category_master import seed_categories
 from routes.parser_routes import parser_bp
 from routes.workflow_routes import workflow_bp
 from routes.ocr_routes import ocr_bp
+from routes.import_export_routes import ie_bp
 import os
 
 
@@ -28,6 +29,7 @@ def create_app():
     app.register_blueprint(parser_bp)
     app.register_blueprint(workflow_bp)
     app.register_blueprint(ocr_bp)
+    app.register_blueprint(ie_bp)
     return app
 
 

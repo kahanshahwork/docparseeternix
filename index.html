@@ -459,6 +459,32 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
         </div>
       </div>
 
+      <!-- CSV / Excel import — alternative to PDF -->
+      <div class="sb-section" style="border-top:1px dashed var(--border);padding-top:14px;">
+        <div class="sb-label">Or Import CSV / Excel</div>
+        <div class="drop-zone" id="csvDropZone" style="padding:12px 10px;">
+          <div class="drop-icon" style="font-size:20px;">📊</div>
+          <div class="drop-hint" style="font-size:11px;"><strong>Click or drop</strong> a CSV or Excel file</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px;">.csv · .xlsx · .xls</div>
+        </div>
+        <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" style="display:none"/>
+        <div class="file-chosen" id="csvFileChosen" style="display:none;">
+          <span style="font-size:17px;">📊</span>
+          <span class="file-name" id="csvFileName"></span>
+          <button class="file-remove" id="csvRemoveFile" title="Remove">✕</button>
+        </div>
+        <div id="csvErrorBox" style="display:none;background:var(--red-lo);border:1px solid rgba(220,38,38,.2);border-radius:6px;padding:6px 8px;font-size:10.5px;color:var(--red);margin-top:6px;"></div>
+        <button class="btn parse-btn" id="csvImportBtn" disabled style="margin-top:8px;">
+          <span id="csvImportBtnText">📊 Import Transactions</span>
+        </button>
+        <div style="font-size:9.5px;color:var(--muted);margin-top:5px;line-height:1.5;">
+          Needs columns: <code style="font-size:9px;background:var(--surface3);padding:1px 3px;border-radius:3px;">Date</code>
+          <code style="font-size:9px;background:var(--surface3);padding:1px 3px;border-radius:3px;">Description</code>
+          <code style="font-size:9px;background:var(--surface3);padding:1px 3px;border-radius:3px;">Debit/Credit</code> or
+          <code style="font-size:9px;background:var(--surface3);padding:1px 3px;border-radius:3px;">Amount</code>
+        </div>
+      </div>
+
       <div class="sb-section">
         <div class="sb-label">Save As</div>
         <input type="text" id="stmtNameInput" class="form-input" placeholder="e.g. CBA Business Jan–Mar" style="font-size:11px;"/>
@@ -571,7 +597,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="page-header">
     <h1>Approve Transactions</h1>
     <span class="sub" id="approveSub"></span>
-    <div class="right"><button class="btn" id="approveBtn">Approve All &amp; Continue →</button></div>
+    <div class="right"><button class="btn-sec" onclick="goPage('parse')" style="margin-right:8px;">← Back</button><button class="btn" id="approveBtn">Approve All &amp; Continue →</button></div>
   </div>
   <div class="wf-content">
     <div class="panel">
@@ -598,6 +624,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <h1>Category Allocation</h1>
     <span class="sub" id="catProgress"></span>
     <div class="right">
+      <button class="btn-sec" onclick="goPage('approve')" style="margin-right:8px;">← Back</button>
       <button class="btn-sec" id="toggleGroupView">Switch to Grouped View</button>
       <button class="btn" id="catContinueBtn">Continue to GST Review →</button>
     </div>
@@ -629,7 +656,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="page-header">
     <h1>GST Review</h1>
     <span class="sub">ATO BAS summary · Worksheet method · Editable amounts</span>
-    <div class="right"><button class="btn" id="gstContinueBtn">Approve GST &amp; Generate P&amp;L →</button></div>
+    <div class="right"><button class="btn-sec" onclick="goPage('categorize')" style="margin-right:8px;">← Back</button><button class="btn-sec" id="gstExportBtn" style="margin-right:8px;">⬇ Export Excel</button><button class="btn" id="gstContinueBtn">Approve GST &amp; Generate P&amp;L →</button></div>
   </div>
   <div class="wf-content">
     <div class="panel">
@@ -671,6 +698,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="page-header">
     <h1>Profit &amp; Loss</h1>
     <span class="sub">Generated from categorized, GST-exclusive (net) amounts</span>
+    <div class="right"><button class="btn-sec" onclick="goPage('gst')" style="margin-right:8px;">← Back</button><button class="btn-sec" id="pnlExportBtn">⬇ Export Excel</button></div>
   </div>
   <div class="wf-content">
     <div class="panel" id="pnlContent"></div>
@@ -2887,6 +2915,139 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
 })();
 
 // ══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+// CSV / EXCEL IMPORT — parse page upload area
+// ══════════════════════════════════════════════════════════════════════════
+(function() {
+  const csvDrop    = document.getElementById('csvDropZone');
+  const csvInput   = document.getElementById('csvFileInput');
+  const csvChosen  = document.getElementById('csvFileChosen');
+  const csvName    = document.getElementById('csvFileName');
+  const csvRemove  = document.getElementById('csvRemoveFile');
+  const csvBtn     = document.getElementById('csvImportBtn');
+  const csvBtnText = document.getElementById('csvImportBtnText');
+  const csvErrBox  = document.getElementById('csvErrorBox');
+  let csvFile = null;
+
+  function setCsvError(msg) {
+    csvErrBox.textContent = msg;
+    csvErrBox.style.display = msg ? 'block' : 'none';
+  }
+
+  function selectCsvFile(f) {
+    csvFile = f;
+    csvName.textContent = f.name;
+    csvChosen.style.display = 'flex';
+    csvDrop.style.display = 'none';
+    csvBtn.disabled = false;
+    setCsvError('');
+  }
+
+  csvDrop.addEventListener('click', () => csvInput.click());
+  csvDrop.addEventListener('dragover', e => { e.preventDefault(); csvDrop.classList.add('drag'); });
+  csvDrop.addEventListener('dragleave', () => csvDrop.classList.remove('drag'));
+  csvDrop.addEventListener('drop', e => {
+    e.preventDefault(); csvDrop.classList.remove('drag');
+    if (e.dataTransfer.files[0]) selectCsvFile(e.dataTransfer.files[0]);
+  });
+  csvInput.addEventListener('change', () => { if (csvInput.files[0]) selectCsvFile(csvInput.files[0]); });
+  csvRemove.addEventListener('click', () => {
+    csvFile = null; csvInput.value = '';
+    csvChosen.style.display = 'none';
+    csvDrop.style.display = 'block';
+    csvBtn.disabled = true;
+    setCsvError('');
+  });
+
+  csvBtn.addEventListener('click', async () => {
+    if (!csvFile) return;
+    csvBtn.disabled = true;
+    csvBtnText.textContent = 'Importing…';
+    setCsvError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', csvFile);
+      const r = await fetch('/api/import/csv', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok || d.error) { setCsvError(d.error || 'Import failed'); return; }
+
+      // Populate exactly the same globals as a PDF parse would
+      allTxns = d.transactions;
+      allAmbiguous = [];
+      ambDecisions = {};
+      parseMeta = { bank_id: 'csv-import', filename: csvFile.name };
+      statementId = d.statement_id || null;
+      activeStatementId = statementId;
+
+      const name = document.getElementById('stmtNameInput').value.trim() || csvFile.name.replace(/\.[^/.]+$/, '');
+      document.getElementById('stmtNameInput').value = name;
+      document.getElementById('autoLabel').textContent = '📊 CSV/Excel Import';
+      document.getElementById('autoChip').querySelector('.dot').style.background = 'var(--accent)';
+
+      const credits = allTxns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+      const debits  = allTxns.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0);
+      document.getElementById('totalCount').textContent   = allTxns.length;
+      document.getElementById('totalCredits').textContent = fmt(credits);
+      document.getElementById('totalDebits').textContent  = fmt(Math.abs(debits));
+      document.getElementById('netVal').textContent       = fmt(credits+debits);
+      document.getElementById('statsSection').style.display = 'block';
+      document.getElementById('sidebarFooter').textContent  = `CSV Import · ${allTxns.length} txns`;
+
+      renderTable(allTxns);
+      emptyState.style.display = 'none';
+      tableWrap.style.display  = 'block';
+      document.getElementById('toolbar').style.display = 'flex';
+      unlockNav('parse', 'approve', 'categorize', 'gst', 'pnl', 'aicategorize');
+      markDone('parse');
+    } catch(e) {
+      setCsvError('Error: ' + e.message);
+    } finally {
+      csvBtn.disabled = false;
+      csvBtnText.textContent = '📊 Import Transactions';
+    }
+  });
+})();
+
+// ══════════════════════════════════════════════════════════════════════════
+// GST EXPORT TO EXCEL
+// ══════════════════════════════════════════════════════════════════════════
+document.getElementById('gstExportBtn').addEventListener('click', async () => {
+  if (!statementId) return;
+  const btn = document.getElementById('gstExportBtn');
+  btn.textContent = 'Exporting…'; btn.disabled = true;
+  try {
+    const r = await fetch(`/api/statements/${statementId}/export/gst`);
+    if (!r.ok) { alert('Export failed: ' + (await r.text())); return; }
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `gst_summary_stmt${statementId}.xlsx`;
+    a.click(); URL.revokeObjectURL(url);
+  } catch(e) { alert('Export error: ' + e.message); }
+  finally { btn.textContent = '⬇ Export Excel'; btn.disabled = false; }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// P&L EXPORT TO EXCEL
+// ══════════════════════════════════════════════════════════════════════════
+document.getElementById('pnlExportBtn').addEventListener('click', async () => {
+  if (!statementId) return;
+  const btn = document.getElementById('pnlExportBtn');
+  btn.textContent = 'Exporting…'; btn.disabled = true;
+  try {
+    const r = await fetch(`/api/statements/${statementId}/export/pnl`);
+    if (!r.ok) { alert('Export failed: ' + (await r.text())); return; }
+    const blob = await r.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `pnl_stmt${statementId}.xlsx`;
+    a.click(); URL.revokeObjectURL(url);
+  } catch(e) { alert('Export error: ' + e.message); }
+  finally { btn.textContent = '⬇ Export Excel'; btn.disabled = false; }
+});
+
 // AI CHAT FLOAT
 // ══════════════════════════════════════════════════════════════════════════
 (function() {
