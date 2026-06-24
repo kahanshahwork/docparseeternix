@@ -289,8 +289,22 @@ select.form-input { cursor: pointer; }
 .nvidia-attach-btn { background: var(--surface2); border: 1px solid var(--border2); border-radius: 9px; width: 38px; height: 38px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--text-dim); font-size: 17px; }
 .nvidia-attach-btn:hover { border-color: var(--accent); color: var(--accent); }
 .nvidia-empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-dim); }
-.nvidia-empty-state .big-icon { font-size: 40px; opacity: .5; }
-.nvidia-empty-state p { font-size: 12px; text-align: center; max-width: 280px; line-height: 1.6; }
+/* ── NVIDIA processing status bar ── */
+.nv-proc-card { background:var(--surface); border:1px solid var(--border2); border-radius:12px; border-bottom-left-radius:4px; padding:14px 16px; min-width:260px; max-width:340px; }
+.nv-proc-phase { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.nv-proc-phase:last-child { margin-bottom:0; }
+.nv-phase-icon { font-size:18px; width:28px; text-align:center; flex-shrink:0; }
+.nv-phase-info { flex:1; }
+.nv-phase-label { font-size:12px; font-weight:600; color:var(--text); }
+.nv-phase-sub { font-size:10.5px; color:var(--text-dim); margin-top:1px; }
+.nv-phase-badge { font-size:9px; font-weight:700; padding:2px 7px; border-radius:99px; margin-left:auto; flex-shrink:0; }
+.nv-phase-badge.active { background:var(--accent-lo); color:var(--accent); animation:nvbadge 1.4s ease-in-out infinite; }
+.nv-phase-badge.done-badge { background:var(--green-lo); color:var(--green); }
+.nv-phase-badge.pending { background:var(--surface3); color:var(--muted); }
+@keyframes nvbadge { 0%,100%{opacity:.6} 50%{opacity:1} }
+.nv-progress-bar { height:3px; border-radius:2px; background:var(--surface3); margin-top:12px; overflow:hidden; }
+.nv-progress-fill { height:100%; border-radius:2px; background:var(--accent); transition:width .4s ease; }
+.nv-timer-row { display:flex; justify-content:space-between; margin-top:8px; font-size:10px; color:var(--muted); font-family:var(--mono); }
 
 /* ── Consolidation section ── */
 .consol-section { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 14px; }
@@ -2178,15 +2192,112 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     return textNode; // return so we can stream into it
   }
 
-  function appendTypingDots() {
+  // ── Processing card (in-bubble) ────────────────────────────────────────
+  let nvTimerInterval = null;
+  let nvProcWrap = null;  // the assistant message div holding the card
+
+  function createProcCard() {
+    // Build the 3-phase processing card as an assistant bubble
     nvEmptyState.style.display = 'none';
     const wrap = document.createElement('div');
     wrap.className = 'nvidia-msg assistant';
-    wrap.id = 'nvTypingDots';
-    wrap.innerHTML = `<div class="avatar">✦</div><div class="nvidia-bubble" style="padding:10px 14px;"><div class="nvidia-typing"><span></span><span></span><span></span></div></div>`;
+    wrap.id = 'nvProcCard';
+    wrap.innerHTML = `
+      <div class="avatar">✦</div>
+      <div class="nv-proc-card">
+        <div class="nv-proc-phase" id="nv-phase-connect">
+          <div class="nv-phase-icon">📡</div>
+          <div class="nv-phase-info">
+            <div class="nv-phase-label">Connecting</div>
+            <div class="nv-phase-sub">Sending request to NVIDIA</div>
+          </div>
+          <span class="nv-phase-badge active" id="badge-connect">RUNNING</span>
+        </div>
+        <div class="nv-proc-phase" id="nv-phase-reason">
+          <div class="nv-phase-icon">🧠</div>
+          <div class="nv-phase-info">
+            <div class="nv-phase-label">Reasoning</div>
+            <div class="nv-phase-sub" id="reason-sub">Waiting…</div>
+          </div>
+          <span class="nv-phase-badge pending" id="badge-reason">WAITING</span>
+        </div>
+        <div class="nv-proc-phase" id="nv-phase-stream">
+          <div class="nv-phase-icon">✍</div>
+          <div class="nv-phase-info">
+            <div class="nv-phase-label">Generating</div>
+            <div class="nv-phase-sub" id="stream-sub">Waiting…</div>
+          </div>
+          <span class="nv-phase-badge pending" id="badge-stream">WAITING</span>
+        </div>
+        <div class="nv-progress-bar"><div class="nv-progress-fill" id="nvProgressFill" style="width:10%"></div></div>
+        <div class="nv-timer-row">
+          <span id="nvPhaseLabel">Connecting to BOT...</span>
+          <span id="nvElapsed">0s</span>
+        </div>
+      </div>`;
     nvMessages.appendChild(wrap);
     nvMessages.scrollTop = nvMessages.scrollHeight;
+    nvProcWrap = wrap;
+
+    // Start elapsed timer
+    let secs = 0;
+    nvTimerInterval = setInterval(() => {
+      secs++;
+      const el = document.getElementById('nvElapsed');
+      if (el) el.textContent = secs + 's';
+    }, 1000);
+
     return wrap;
+  }
+
+  function setProcPhase(phase) {
+    // phase: 'connect' | 'reason' | 'stream'
+    const phases = ['connect', 'reason', 'stream'];
+    const progress = { connect: '15%', reason: '45%', stream: '80%' };
+    const labels = {
+      connect: 'Connecting to BOT...',
+      reason:  'Model is reasoning — this takes 10–30s…',
+      stream:  'Generating response…',
+    };
+    phases.forEach((p, i) => {
+      const badge = document.getElementById('badge-' + p);
+      if (!badge) return;
+      const phaseIdx  = phases.indexOf(phase);
+      if (i < phaseIdx) {
+        badge.textContent = '✓ DONE';
+        badge.className = 'nv-phase-badge done-badge';
+      } else if (i === phaseIdx) {
+        badge.textContent = 'RUNNING';
+        badge.className = 'nv-phase-badge active';
+      } else {
+        badge.textContent = 'WAITING';
+        badge.className = 'nv-phase-badge pending';
+      }
+    });
+    const fill = document.getElementById('nvProgressFill');
+    if (fill) fill.style.width = progress[phase] || '10%';
+    const lbl = document.getElementById('nvPhaseLabel');
+    if (lbl) lbl.textContent = labels[phase] || '';
+
+    if (phase === 'reason') {
+      const sub = document.getElementById('reason-sub');
+      if (sub) sub.textContent = 'Internal chain-of-thought in progress';
+    }
+  }
+
+  function updateStreamSub(tokens) {
+    const sub = document.getElementById('stream-sub');
+    if (sub) sub.textContent = tokens + ' tokens generated';
+    const fill = document.getElementById('nvProgressFill');
+    // Progress 80% → 98% as tokens grow (cap at ~1000)
+    if (fill) fill.style.width = Math.min(98, 80 + (tokens / 1000) * 18) + '%';
+  }
+
+  function removeProcCard() {
+    clearInterval(nvTimerInterval);
+    const card = document.getElementById('nvProcCard');
+    if (card) card.remove();
+    nvProcWrap = null;
   }
 
   async function sendNvMessage() {
@@ -2194,26 +2305,24 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     if ((!text && !nvAttachedImage) || nvIsStreaming) return;
 
     const promptText = text || '(Analyze this image)';
-    const imgSnap = nvAttachedImage; // capture before clearing
+    const imgSnap = nvAttachedImage;
     nvInput.value = ''; nvInput.style.height = 'auto';
     nvSendBtn.disabled = true;
     nvIsStreaming = true;
 
-    // Show user bubble
     appendNvBubble('user', promptText, imgSnap?.dataUrl);
 
-    // Clear image after sending
     nvAttachedImage = null;
     nvImgBar.style.display = 'none';
     nvFilePrev.style.display = 'none';
     nvDropZone.style.display = 'block';
     nvFileInput.value = ''; nvInlineFile.value = '';
 
-    // Build messages for API — history is text-only for multi-turn
     const apiMessages = [...nvHistory, { role: 'user', content: promptText }];
 
-    // Show typing indicator
-    const typingEl = appendTypingDots();
+    // Show the processing card — Phase 1: connecting
+    createProcCard();
+    setProcPhase('connect');
 
     try {
       const body = {
@@ -2228,26 +2337,28 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
 
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: resp.statusText }));
-        typingEl.remove();
+        removeProcCard();
         appendNvBubble('assistant', '⚠ Error: ' + (err.error || resp.statusText));
         return;
       }
 
-      // Start streaming — replace typing dots with real bubble
-      typingEl.remove();
-      const textNode = appendNvBubble('assistant', '');
-      let fullText = '';
+      // Phase 2: connected, model reasoning (waiting for first token)
+      setProcPhase('reason');
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let fullText = '';
+      let textNode = null;
+      let tokenCount = 0;
+      let firstToken = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        buffer = lines.pop(); // keep incomplete line
+        buffer = lines.pop();
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6).trim();
@@ -2256,7 +2367,21 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
             const chunk = JSON.parse(data);
             const delta = chunk.choices?.[0]?.delta?.content || '';
             if (delta) {
+              if (!firstToken) {
+                // Phase 3: first token — switch card to streaming
+                firstToken = true;
+                setProcPhase('stream');
+              }
               fullText += delta;
+              tokenCount++;
+              updateStreamSub(tokenCount);
+
+              // Replace proc card with real text bubble on first token
+              // but keep card visible until we have a decent chunk to show
+              if (tokenCount === 1) {
+                removeProcCard();
+                textNode = appendNvBubble('assistant', '');
+              }
               textNode.textContent = fullText;
               nvMessages.scrollTop = nvMessages.scrollHeight;
             }
@@ -2264,12 +2389,16 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
         }
       }
 
-      // Add to history (text only)
+      if (!firstToken) {
+        removeProcCard();
+        appendNvBubble('assistant', '(No response received)');
+      }
+
       nvHistory.push({ role: 'user', content: promptText });
       nvHistory.push({ role: 'assistant', content: fullText });
 
     } catch (e) {
-      typingEl.remove();
+      removeProcCard();
       appendNvBubble('assistant', '⚠ ' + e.message);
     } finally {
       nvIsStreaming = false;
@@ -2277,7 +2406,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════
   // OCR TOOL (original)
   // ══════════════════════════════════════════════════════════════════════════
   const dropZone  = document.getElementById('ocrDropZone');
