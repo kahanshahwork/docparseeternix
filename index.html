@@ -2549,22 +2549,31 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     // 1. Strip markdown code fences  ```json ... ``` or ``` ... ```
     text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
 
-    // 2. Try direct parse first
+    // 2. Clean common LLM JSON mistakes BEFORE trying to parse:
+    //    a) -$123.45  →  -123.45   (dollar sign inside a number)
+    //    b) "$123.45" →  "123.45"  when it appears as a bare JSON value (not in a string)
+    //       Actually leave string values alone — parseMoney handles those.
+    //       Only fix bare unquoted -$N values: e.g.  "debit": -$40000.00
+    text = text.replace(/:\s*-\s*\$\s*([\d,]+\.?\d*)/g, ': -$1');   // -$40000 → -40000
+    text = text.replace(/:\s*\+?\$\s*([\d,]+\.?\d*)/g, ': $1');      // :$40000 → :40000 (bare positive)
+    // Remove commas inside bare numbers:  -40,000.00 → -40000.00
+    text = text.replace(/:\s*(-?\d+),(\d{3})/g, ': $1$2');
+
+    // 3. Try direct parse first
     try { return JSON.parse(text.trim()); } catch(_e) {}
 
-    // 3. Find the first [ and last ] — extract just that block
+    // 4. Find the first [ and last ] — extract just that block
     const firstBracket = text.indexOf('[');
     const lastBracket  = text.lastIndexOf(']');
     if (firstBracket !== -1 && lastBracket > firstBracket) {
       const candidate = text.slice(firstBracket, lastBracket + 1);
-      // Fix trailing commas before } or ] (common LLM output issue)
       const fixed = candidate
-        .replace(/,\s*}/g, '}')
+        .replace(/,\s*}/g, '}')    // trailing commas
         .replace(/,\s*]/g, ']');
       try { return JSON.parse(fixed); } catch(_e) {}
     }
 
-    // 4. Find first { and last } — maybe it's an object not wrapped in array
+    // 5. Find first { and last } — maybe it's an object not wrapped in array
     const firstBrace = text.indexOf('{');
     const lastBrace  = text.lastIndexOf('}');
     if (firstBrace !== -1 && lastBrace > firstBrace) {
@@ -2572,7 +2581,6 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
         .replace(/,\s*}/g, '}')
         .replace(/,\s*]/g, ']');
       try { return JSON.parse(candidate); } catch(_e) {}
-      // Try wrapping in array
       try { return JSON.parse('[' + candidate + ']'); } catch(_e) {}
     }
 
