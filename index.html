@@ -1521,7 +1521,7 @@ async function loadApprove() {
 function renderApproveRows(rows) {
   document.getElementById("approveBody").innerHTML = rows.map(t => `
     <tr>
-      <td><input type="date" value="${esc(t.date||'')}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);" onchange="patchTxn(${t.id},'date',this.value)"/></td>
+      <td><input type="text" value="${esc(t.date||'')}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);width:96px;" onchange="patchTxn(${t.id},'date',this.value)"/></td>
       <td><input type="text" value="${esc(t.description||'')}" style="border:none;background:transparent;font-size:11.5px;color:var(--text);width:100%;" onchange="patchTxn(${t.id},'description',this.value)"/></td>
       <td style="color:var(--muted);font-size:11px;">${t.source_page||''}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11.5px;" class="${t.amount>0?'td-amt pos':'td-amt neg'}">
@@ -1610,30 +1610,48 @@ async function loadGroupedView() {
 
   function renderGroupSection(groups, sectionLabel, sectionColor) {
     if (!groups || !groups.length) return '';
-    const catOpts = '<option value="">Uncategorized</option>' + categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
     return `
       <div style="margin-bottom:6px;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:${sectionColor};">
         ${sectionLabel} (${groups.length} group${groups.length>1?'s':''})
       </div>
-      ${groups.map(g => {
-        // Build select with dominant category pre-selected
+      ${groups.map((g, gi) => {
         const domId = g.dominant_category_id;
         const selOpts = '<option value=""' + (!domId?' selected':'') + '>Uncategorized</option>' +
           categories.map(c => `<option value="${c.id}"${c.id===domId?' selected':''}>${esc(c.name)}</option>`).join('');
         const txnIds = (g.transactions || []).map(t => t.id);
-        // Sample descriptions from transactions
-        const samples = [...new Set((g.transactions||[]).map(t=>t.description).filter(Boolean))].slice(0,3);
+        const groupUid = `grp-${sectionLabel.replace(/\W/g,'')}-${gi}`;
+        // Individual transaction rows (hidden by default)
+        const txnRows = (g.transactions || []).map(t => `
+          <tr style="background:var(--surface);">
+            <td style="padding:5px 14px;font-family:var(--mono);font-size:10.5px;color:var(--text-dim);white-space:nowrap;">${esc(t.date||'—')}</td>
+            <td style="padding:5px 14px;font-size:10.5px;color:var(--text);">${esc(t.description||'')}</td>
+            <td style="padding:5px 14px;font-family:var(--mono);font-size:10.5px;text-align:right;color:${t.amount>=0?'var(--green)':'var(--red)'};">${fmt(t.amount)}</td>
+          </tr>`).join('');
         return `
-          <div style="margin-bottom:10px; border:1px solid var(--border); border-radius:10px; overflow:hidden;">
-            <div style="padding:10px 14px; background:var(--surface2); display:flex; align-items:center; gap:10px;">
-              <span style="flex:1; font-size:12px; font-weight:700;">${esc(g.group_key)}</span>
-              <span style="font-size:10px; color:var(--muted);">${g.count} txns · ${fmt(g.total)}</span>
+          <div style="margin-bottom:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+            <div style="padding:10px 14px;background:var(--surface2);display:flex;align-items:center;gap:10px;">
+              <button onclick="toggleGroup('${groupUid}')" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 4px;line-height:1;" title="Expand / collapse">
+                <span id="${groupUid}-icon">▶</span>
+              </button>
+              <span style="flex:1;font-size:12px;font-weight:700;">${esc(g.group_key)}</span>
+              <span style="font-size:10px;color:var(--muted);">${g.count} txns · ${fmt(g.total)}</span>
               <select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);"
                 onchange="categorizeGroup([${txnIds.join(',')}], this.value, this)">
                 ${selOpts}
               </select>
             </div>
-            ${samples.length ? `<div style="padding:6px 14px 8px; font-size:10.5px; color:var(--text-dim);">${samples.map(s=>esc(s)).join(' · ')}</div>` : ''}
+            <div id="${groupUid}-rows" style="display:none;">
+              <table style="width:100%;border-collapse:collapse;">
+                <thead>
+                  <tr style="background:var(--surface3);">
+                    <th style="padding:4px 14px;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);text-align:left;width:90px;">Date</th>
+                    <th style="padding:4px 14px;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);text-align:left;">Description</th>
+                    <th style="padding:4px 14px;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);text-align:right;">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>${txnRows}</tbody>
+              </table>
+            </div>
           </div>`;
       }).join('')}`;
   }
@@ -1646,6 +1664,15 @@ async function loadGroupedView() {
   } else {
     gv.innerHTML = debitHtml + creditHtml;
   }
+}
+
+function toggleGroup(uid) {
+  const rows = document.getElementById(uid + '-rows');
+  const icon = document.getElementById(uid + '-icon');
+  if (!rows) return;
+  const open = rows.style.display === 'none';
+  rows.style.display = open ? '' : 'none';
+  if (icon) icon.textContent = open ? '▼' : '▶';
 }
 
 async function categorizeGroup(txnIds, catId, selectEl) {
