@@ -532,9 +532,8 @@ def _parse_layout_a(pages: list, start_year: int, opening_balance: Optional[floa
             else:
                 # Description continuation row
                 if pending_date and desc_str:
-                    if not re.match(r"^(Card\s+xx|Value\s+Date:|Created\s+\d|"
-                                    r"CommBank\s+App\s+[A-Z]|NetBank\s+BPAY|"
-                                    r"Opening\s+balance|Closing\s+balance)", desc_str, re.I):
+                    # Skip only pure noise rows: card numbers, value dates, barcodes
+                    if not re.match(r"^(Card\s+xx\d+|Value\s+Date:\s*\d|Created\s+\d)", desc_str, re.I):
                         pending_descs.append(desc_str)
 
         # Flush any dangling transaction
@@ -564,6 +563,47 @@ def _parse_layout_b(pages: list, start_year: int, opening_balance: Optional[floa
             continue
 
         rows = _group_rows(words)
+        pending_date  = None
+        pending_descs = []
+        pending_top   = 0.0
+
+        def emit_b(amt_raw, bal_str, top):
+            nonlocal pending_date, pending_descs
+            if pending_date is None:
+                return
+            amt_str = amt_raw
+            m_amt = re.search(r"[+\-−]?\$?[\d,]+\.\d{2}", amt_raw)
+            if m_amt:
+                amt_str = m_amt.group(0)
+            amount = _parse_num(amt_str)
+            if amount is None:
+                pending_date = None; pending_descs = []
+                return
+            bal_val = None
+            if bal_str:
+                b = re.sub(r"CR$", "", bal_str, flags=re.I).strip().lstrip("$").replace(",", "")
+                try:
+                    bal_val = float(b)
+                except ValueError:
+                    pass
+            signed = amount
+            if bal_val is not None and prev_balance[0] is not None:
+                delta = round(bal_val - prev_balance[0], 2)
+                if abs(abs(delta) - abs(amount)) <= 0.02:
+                    signed = delta
+            if bal_val is not None:
+                prev_balance[0] = bal_val
+            transactions.append({
+                "transaction_id": "",
+                "date":           pending_date,
+                "description":    " ".join(pending_descs).strip(),
+                "amount":         round(signed, 2),
+                "balance":        bal_val,
+                "source_page":    page_num,
+                "row_top":        top,
+                "confidence":     1.0,
+            })
+            pending_date = None; pending_descs = []
 
         for row in rows:
             if not row:
@@ -582,63 +622,25 @@ def _parse_layout_b(pages: list, start_year: int, opening_balance: Optional[floa
             if _SKIP_RE.match(full) or _SKIP_RE.match(desc_str):
                 continue
 
-            if not _is_date_row(date_str):
-                continue
+            if _is_date_row(date_str):
+                emit_b("", "", 0.0)
+                date_parsed = _parse_date_token(date_str, year_state)
+                if not date_parsed:
+                    continue
+                pending_date  = date_parsed
+                pending_top   = row[0]["top"]
+                pending_descs = [desc_str] if desc_str else []
+                if amt_raw:
+                    emit_b(amt_raw, bal_str, pending_top)
+            elif amt_raw and pending_date:
+                if desc_str:
+                    pending_descs.append(desc_str)
+                emit_b(amt_raw, bal_str, pending_top)
+            elif pending_date and desc_str:
+                pending_descs.append(desc_str)
 
-            if not amt_raw:
-                continue
+        emit_b("", "", 0.0)
 
-            # Amount may have description text bleeding in (e.g. "Ltd -$1,028.50")
-            # Extract just the numeric/signed amount portion
-            amt_str = amt_raw
-            m_amt = re.search(r"[+\-−]?\$?[\d,]+\.\d{2}", amt_raw)
-            if m_amt:
-                amt_str = m_amt.group(0)
-            # Also recover any description spill
-            spill = amt_raw[:m_amt.start()].strip() if m_amt and m_amt.start() > 0 else ""
-            if spill and not re.match(r"^[\d$+\-]", spill):
-                desc_str = (desc_str + " " + spill).strip()
-
-            date_parsed = _parse_date_token(date_str, year_state)
-            if not date_parsed:
-                continue
-
-            amount = _parse_num(amt_str)
-            if amount is None:
-                continue
-
-            bal_val = None
-            if bal_str:
-                b = re.sub(r"CR$","",bal_str,flags=re.I).strip().lstrip("$").replace(",","")
-                try:
-                    bal_val = float(b)
-                except ValueError:
-                    pass
-
-            # Ground truth
-            signed = amount
-            if bal_val is not None and prev_balance[0] is not None:
-                delta = round(bal_val - prev_balance[0], 2)
-                if abs(abs(delta) - abs(amount)) <= 0.02:
-                    signed = delta
-
-            if bal_val is not None:
-                prev_balance[0] = bal_val
-
-            # Collect description (date row + any continuation until next date row)
-            transactions.append({
-                "transaction_id": "",
-                "date":           date_parsed,
-                "description":    desc_str,
-                "amount":         round(signed, 2),
-                "balance":        bal_val,
-                "source_page":    page_num,
-                "row_top":        row[0]["top"],
-                "confidence":     1.0,
-            })
-
-    # Multi-row descriptions: stitch continuation rows
-    # (TransactionSummary sometimes has ref numbers as continuation)
     return transactions
 
 
@@ -833,12 +835,21 @@ DISPLAY_NAME = "CBA"
 
 
 def can_parse(first_page_text: str, page_count: int) -> float:
+    """Score on structural signals only — no product names or account types."""
     txt = first_page_text.lower()
     score = 0.0
-    if "commonwealth bank" in txt or "commbank" in txt: score += 0.45
-    if "your statement" in txt:                          score += 0.3
-    if re.search(r"here.s your account information", txt): score += 0.3
-    if re.search(r"date.*transaction.*debit.*credit|date.*transaction.*amount", txt): score += 0.25
+    if "commonwealth bank" in txt or "commbank" in txt:
+        score += 0.4
+    # Structural: column header vocabulary
+    if re.search(r"\bdebit\b", txt) and re.search(r"\bcredit\b", txt):
+        score += 0.2
+    if re.search(r"\bamount\b", txt) and re.search(r"\bbalance\b", txt):
+        score += 0.15
+    if re.search(r"\bdate\b", txt) and re.search(r"\btransaction\b", txt):
+        score += 0.15
+    # Structural: date formats seen in CBA statements
+    if re.search(r"\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b", txt):
+        score += 0.1
     return min(score, 1.0)
 
 
@@ -864,7 +875,6 @@ def parse(pdf_path: str) -> dict:
             # Unknown layout — try A as best guess
             txns = _parse_layout_a(pages, start_year, opening_bal)
 
-    txns.sort(key=lambda t: (t.get("date") or "", t.get("source_page", 0), t.get("row_top", 0)))
     for i, t in enumerate(txns):
         t["transaction_id"] = f"cba_{i+1:04d}"
 

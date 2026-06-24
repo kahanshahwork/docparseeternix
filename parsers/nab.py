@@ -44,7 +44,7 @@ _MONTH_MAP = {
     "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12,
 }
 
-_DOT_RE = re.compile(r"^\.{3,}$")   # long dot-fill sequences
+_DOT_RE = re.compile(r"\.{3,}")   # dot-fill: pure dots OR trailing dots after text
 
 _SKIP_ROW_RE = re.compile(
     r"(TOTALS|Please\s+check|Page\s+\d+\s+of|Statement\s+number|"
@@ -142,11 +142,61 @@ def _calibrate_columns(words: list) -> dict:
         "bal_min":  split_cred_bal,
     }
 
-# Credit card column zones
-_CC_DATE_X_MAX   = 100
-_CC_AMT_X_MIN    = 100
-_CC_AMT_X_MAX    = 184
-_CC_DESC_X_MIN   = 184
+# Credit card column calibration — derived from header row, not hardcoded.
+# Fallback defaults used only when no header is found on the page.
+_CC_DATE_X_MAX_DEFAULT  = 100
+_CC_AMT_X_MIN_DEFAULT   = 100
+_CC_AMT_X_MAX_DEFAULT   = 184
+_CC_DESC_X_MIN_DEFAULT  = 184
+
+def _calibrate_cc_columns(words: list) -> dict:
+    """
+    Derive landscape credit card column boundaries from the header row.
+    Looks for a row containing "Date", "Amount", "Details" or similar.
+    Falls back to defaults if no header found.
+    """
+    from collections import defaultdict
+    by_y = defaultdict(list)
+    for w in words:
+        by_y[round(w["top"] / 5) * 5].append(w)
+
+    CC_HDR = {"date", "amount", "details", "explanation", "gst", "reference"}
+    header_row = None
+    for y_bucket in sorted(by_y.keys()):
+        row = by_y[y_bucket]
+        texts = {w["text"].lower() for w in row}
+        if "date" in texts and ("amount" in texts or "details" in texts):
+            if len(texts & CC_HDR) >= 2:
+                header_row = row
+                break
+
+    if header_row is None:
+        return {
+            "date_max":  _CC_DATE_X_MAX_DEFAULT,
+            "amt_min":   _CC_AMT_X_MIN_DEFAULT,
+            "amt_max":   _CC_AMT_X_MAX_DEFAULT,
+            "desc_min":  _CC_DESC_X_MIN_DEFAULT,
+        }
+
+    positions = {}
+    for w in header_row:
+        key = w["text"].lower()
+        if key in CC_HDR:
+            positions[key] = w["x0"]
+
+    date_max = positions.get("date", _CC_DATE_X_MAX_DEFAULT)
+    amt_x0   = positions.get("amount", _CC_AMT_X_MIN_DEFAULT)
+    desc_x0  = positions.get("details", positions.get("explanation", _CC_DESC_X_MIN_DEFAULT))
+
+    # amt column ends at midpoint between amt header and desc header
+    amt_max = (amt_x0 + desc_x0) / 2 if desc_x0 > amt_x0 else amt_x0 + 80
+
+    return {
+        "date_max":  date_max + 5,   # small buffer after Date header word
+        "amt_min":   amt_x0,
+        "amt_max":   amt_max,
+        "desc_min":  desc_x0,
+    }
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
@@ -184,7 +234,12 @@ def _is_amount_token(s: str) -> bool:
     return bool(_PLAIN_NUM_RE.match(s) or _DOLLAR_RE.match(s) or _SIGNED_RE.match(s))
 
 def _is_dot_fill(s: str) -> bool:
-    return bool(_DOT_RE.match(s))
+    """True if string is pure dots OR ends with 3+ dots (dot-leader fill like 'Ref:123......')"""
+    return bool(_DOT_RE.search(s))
+
+def _strip_dot_fill(s: str) -> str:
+    """Remove trailing dot-fill, returning the meaningful prefix."""
+    return _DOT_RE.sub("", s).strip()
 
 def _parse_date_from_words(words_in_date_col: list, year_state: list) -> Optional[str]:
     """Try to parse date from words with x0 < _DATE_X_MAX."""
@@ -332,8 +387,8 @@ def _parse_nab_business(pages: list, start_year: int) -> tuple:
                            and w["text"].lower() not in ("cr", "dr")]
 
             desc_text = " ".join(
-                w["text"] for w in part_words
-                if not _is_dot_fill(w["text"])
+                _strip_dot_fill(w["text"]) for w in part_words
+                if w["text"].strip(".") != ""
             ).strip()
             deb_str  = deb_words[0]["text"]  if deb_words  else ""
             cred_str = cred_words[0]["text"] if cred_words else ""
@@ -398,10 +453,11 @@ def _parse_nab_credit_card(pages: list, start_year: int) -> tuple:
         if not words:
             continue
 
+        cc_col = _calibrate_cc_columns(words)
         rows = _group_rows(words, y_tol=4.0)
 
         for row in rows:
-            visible = [w for w in row if w["x0"] > 30 and w["top"] < 570]
+            visible = [w for w in row if w["x0"] > 30]
             if not visible:
                 continue
 
@@ -415,18 +471,17 @@ def _parse_nab_credit_card(pages: list, start_year: int) -> tuple:
             if all(w["text"] == "_" for w in visible):
                 continue
 
-            date_words   = [w for w in visible if w["x0"] < _CC_DATE_X_MAX
+            date_words   = [w for w in visible if w["x0"] < cc_col["date_max"]
                             and not w["text"].startswith("$")
                             and re.match(r"^\d{1,2}$|^[A-Za-z]{3}$|^\d{4}$", w["text"])]
             amount_words = [w for w in visible
-                            if _CC_AMT_X_MIN <= w["x0"] < _CC_AMT_X_MAX
+                            if cc_col["amt_min"] <= w["x0"] < cc_col["amt_max"]
                             and w["text"].startswith("$")]
-            # "CR" suffix can appear just after the $ amount, before the desc zone starts
             cr_words     = [w for w in visible
-                            if _CC_AMT_X_MIN <= w["x0"] < _CC_DESC_X_MIN
+                            if cc_col["amt_min"] <= w["x0"] < cc_col["desc_min"]
                             and w["text"].upper() == "CR"]
             desc_words   = [w for w in visible
-                            if w["x0"] >= _CC_DESC_X_MIN
+                            if w["x0"] >= cc_col["desc_min"]
                             and w["text"] != "_"
                             and not re.match(r"^_+$", w["text"])]
 
@@ -674,13 +729,62 @@ def _parse_nab_txn_history(pages: list, start_year: int) -> tuple:
 # Row: DD/MM/YY  DD/MM/YY  V####  DESCRIPTION...  XX.XX [CR]
 # No dollar sign on amounts; "CR" suffix marks a payment/credit (reduces balance).
 
-_PCC_DATE1_X_MAX = 100   # "Date processed" column
-_PCC_DATE2_X_MIN = 100   # "Date of transaction" column
-_PCC_DATE2_X_MAX = 200
-_PCC_CARD_X_MIN  = 200   # "Card No" column (e.g. V3977)
-_PCC_CARD_X_MAX  = 245
-_PCC_DESC_X_MIN  = 245   # "Details" column
-_PCC_AMT_X_MIN   = 480   # "Amount A$" column (right-aligned)
+# Portrait CC defaults — overridden per-page by _calibrate_portrait_cc_columns()
+_PCC_DATE1_X_MAX_DEFAULT = 100
+_PCC_DATE2_X_MAX_DEFAULT = 200
+_PCC_DESC_X_MIN_DEFAULT  = 245
+_PCC_AMT_X_MIN_DEFAULT   = 480
+
+def _calibrate_portrait_cc_columns(words: list) -> dict:
+    """
+    Derive portrait credit card column boundaries from the header row.
+    Header: "Date processed | Date of transaction | Card No | Details | Amount A$"
+    Falls back to defaults if header not found.
+    """
+    from collections import defaultdict
+    by_y = defaultdict(list)
+    for w in words:
+        by_y[round(w["top"] / 5) * 5].append(w)
+
+    PCC_HDR = {"processed", "transaction", "card", "details", "amount"}
+    header_row = None
+    for y_bucket in sorted(by_y.keys()):
+        row = by_y[y_bucket]
+        texts = {w["text"].lower() for w in row}
+        if "processed" in texts and "details" in texts:
+            header_row = row
+            break
+
+    if header_row is None:
+        return {
+            "date1_max": _PCC_DATE1_X_MAX_DEFAULT,
+            "date2_max": _PCC_DATE2_X_MAX_DEFAULT,
+            "desc_min":  _PCC_DESC_X_MIN_DEFAULT,
+            "amt_min":   _PCC_AMT_X_MIN_DEFAULT,
+        }
+
+    positions = {}
+    for w in header_row:
+        key = w["text"].lower()
+        if key in PCC_HDR:
+            positions[key] = w["x0"]
+
+    # "processed" = first date col, "transaction" = second date col
+    date1_x = positions.get("processed", _PCC_DATE1_X_MAX_DEFAULT)
+    date2_x = positions.get("transaction", _PCC_DATE2_X_MAX_DEFAULT)
+    desc_x  = positions.get("details", _PCC_DESC_X_MIN_DEFAULT)
+    amt_x   = positions.get("amount", _PCC_AMT_X_MIN_DEFAULT)
+
+    # date1 col ends at midpoint between date1 and date2 headers
+    date1_max = (date1_x + date2_x) / 2 if date2_x > date1_x else date1_x + 50
+    date2_max = (date2_x + desc_x) / 2  if desc_x > date2_x  else date2_x + 50
+
+    return {
+        "date1_max": date1_max,
+        "date2_max": date2_max,
+        "desc_min":  desc_x,
+        "amt_min":   amt_x - 40,  # small buffer for right-aligned amounts
+    }
 
 
 def _is_portrait_cc_page(words: list) -> bool:
@@ -698,10 +802,11 @@ def _parse_nab_portrait_credit_card(pages: list, start_year: int) -> tuple:
         if not words:
             continue
 
+        pcc_col = _calibrate_portrait_cc_columns(words)
         rows = _group_rows(words)
 
         for row in rows:
-            visible = [w for w in row if w["top"] < 800]
+            visible = [w for w in row if w["top"] < page.height - 30]
             if not visible:
                 continue
             full_text = " ".join(w["text"] for w in visible)
@@ -717,14 +822,14 @@ def _parse_nab_portrait_credit_card(pages: list, start_year: int) -> tuple:
                          r"IF\s+YOU\s+BECOME)", full_text, re.I):
                 continue
 
-            date_words = [w for w in visible if w["x0"] < _PCC_DATE2_X_MAX
+            date_words = [w for w in visible if w["x0"] < pcc_col["date2_max"]
                           and re.match(r"^\d{1,2}/\d{1,2}/\d{2,4}$", w["text"])]
             if not date_words:
                 continue
 
             # First date = date processed (we use this); skip if not present
             proc_date_word = next((w for w in visible
-                                    if w["x0"] < _PCC_DATE1_X_MAX
+                                    if w["x0"] < pcc_col["date1_max"]
                                     and re.match(r"^\d{1,2}/\d{1,2}/\d{2,4}$", w["text"])), None)
             if not proc_date_word:
                 continue
@@ -743,7 +848,7 @@ def _parse_nab_portrait_credit_card(pages: list, start_year: int) -> tuple:
             if not found_date:
                 continue
 
-            amt_words = [w for w in visible if w["x0"] >= _PCC_AMT_X_MIN - 40
+            amt_words = [w for w in visible if w["x0"] >= pcc_col["amt_min"]
                          and re.match(r"^[\d,]+\.\d{2}$", w["text"])]
             if not amt_words:
                 continue
@@ -757,7 +862,7 @@ def _parse_nab_portrait_credit_card(pages: list, start_year: int) -> tuple:
             is_payment = cr_word is not None
 
             desc_words = [w for w in visible
-                          if w["x0"] >= _PCC_DESC_X_MIN
+                          if w["x0"] >= pcc_col["desc_min"]
                           and w not in amt_words
                           and w["text"].upper() != "CR"
                           and w["x0"] < (amt_words[0]["x0"] if amt_words else 9999)]
@@ -803,20 +908,21 @@ def _extract_start_year(text: str) -> int:
 DISPLAY_NAME = "NAB"
 
 def can_parse(first_page_text: str, page_count: int) -> float:
+    """Score on structural signals only — no product names or account types."""
     txt = first_page_text.lower()
     score = 0.0
     if "nab" in txt or "national australia bank" in txt:
-        score += 0.5
+        score += 0.4
+    # Structural: header vocabulary
     if "particulars" in txt:
-        score += 0.2
+        score += 0.25
     if "debits" in txt or "credits" in txt:
+        score += 0.15
+    if "balance" in txt:
         score += 0.1
-    if "qantas" in txt or "commercial cards" in txt:
-        score += 0.2
-    if "transaction history" in txt:
-        score += 0.3
-    if "date processed" in txt:
-        score += 0.3
+    # Structural: date formats
+    if re.search(r"\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b", txt):
+        score += 0.1
     return min(score, 1.0)
 
 def parse(pdf_path: str) -> dict:
@@ -871,7 +977,6 @@ def parse(pdf_path: str) -> dict:
                 if txns[i]["amount"] == 0.0 or abs(abs(delta) - abs(txns[i]["amount"])) <= 0.05:
                     txns[i]["amount"] = round(delta, 2)
 
-    txns.sort(key=lambda t: (t.get("date") or "", t.get("source_page", 0), t.get("row_top", 0)))
     for i, t in enumerate(txns):
         t["transaction_id"] = f"nab_{i+1:04d}"
 

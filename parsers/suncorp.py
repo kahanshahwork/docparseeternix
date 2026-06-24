@@ -626,11 +626,18 @@ def _extract_metadata(text: str) -> dict:
 DISPLAY_NAME = "Suncorp"
 
 def can_parse(first_page_text: str, page_count: int) -> float:
+    """Score on structural signals only — no product names or account types."""
     txt = first_page_text.lower()
     score = 0.0
-    if "suncorp" in txt: score += 0.55
-    if "suncorpbank.com.au" in txt or "suncorp.com.au" in txt: score += 0.25
-    if re.search(r"everyday options|business everyday|business premium|sub-account|fixed term deposit", txt): score += 0.2
+    if "suncorp" in txt:
+        score += 0.45
+    if "suncorpbank.com.au" in txt or "suncorp.com.au" in txt:
+        score += 0.2
+    # Structural: column header vocabulary
+    if "withdrawal" in txt and "deposit" in txt and "balance" in txt:
+        score += 0.25
+    if re.search(r"\bdate\b", txt) and re.search(r"\btransaction\b", txt):
+        score += 0.1
     return min(score, 1.0)
 
 def parse(file_path: str) -> dict:
@@ -669,7 +676,6 @@ def parse(file_path: str) -> dict:
             )
             transactions.extend(txns)
 
-    transactions.sort(key=lambda t: (t.get("date") or "", t.get("source_page", 0), t.get("row_top", 0)))
     for idx, t in enumerate(transactions):
         t["transaction_id"] = f"suncorp_{idx+1:04d}"
 
