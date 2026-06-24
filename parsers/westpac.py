@@ -187,6 +187,7 @@ def _parse_format_b(pdf_path: str) -> dict:
         for page_num, page in enumerate(pdf.pages, 1):
             transactions.extend(_parse_page_b(page, page_num))
 
+    transactions.sort(key=lambda t: (t.get("date") or "", t.get("source_page", 0), t.get("row_top", 0)))
     for i, txn in enumerate(transactions):
         txn["transaction_id"] = f"westpac_{i + 1:04d}"
 
@@ -366,6 +367,7 @@ def _parse_format_a(pdf_path: str) -> dict:
     for page_num, text in pages:
         transactions.extend(_parse_page_text_a(text, page_num, prev_balance))
 
+    transactions.sort(key=lambda t: (t.get("date") or "", t.get("source_page", 0), t.get("row_top", 0)))
     for i, txn in enumerate(transactions):
         txn["transaction_id"] = f"westpac_{i + 1:04d}"
 

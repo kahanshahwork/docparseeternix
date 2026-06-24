@@ -669,6 +669,7 @@ def parse(file_path: str) -> dict:
             )
             transactions.extend(txns)
 
+    transactions.sort(key=lambda t: (t.get("date") or "", t.get("source_page", 0), t.get("row_top", 0)))
     for idx, t in enumerate(transactions):
         t["transaction_id"] = f"suncorp_{idx+1:04d}"
 

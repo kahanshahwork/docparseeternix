@@ -154,12 +154,6 @@ def app_page():
     return send_from_directory(APP_ROOT, "index.html")
 
 
-@parser_bp.route("/split-view")
-def split_view():
-    """Split window view for side-by-side statement comparison."""
-    return send_from_directory(APP_ROOT, "split.html")
-
-
 @parser_bp.route("/workflow")
 def workflow_page():
     return redirect("/app")

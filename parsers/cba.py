@@ -864,6 +864,7 @@ def parse(pdf_path: str) -> dict:
             # Unknown layout — try A as best guess
             txns = _parse_layout_a(pages, start_year, opening_bal)
 
+    txns.sort(key=lambda t: (t.get("date") or "", t.get("source_page", 0), t.get("row_top", 0)))
     for i, t in enumerate(txns):
         t["transaction_id"] = f"cba_{i+1:04d}"
 

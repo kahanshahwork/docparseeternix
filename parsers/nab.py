@@ -871,6 +871,7 @@ def parse(pdf_path: str) -> dict:
                 if txns[i]["amount"] == 0.0 or abs(abs(delta) - abs(txns[i]["amount"])) <= 0.05:
                     txns[i]["amount"] = round(delta, 2)
 
+    txns.sort(key=lambda t: (t.get("date") or "", t.get("source_page", 0), t.get("row_top", 0)))
     for i, t in enumerate(txns):
         t["transaction_id"] = f"nab_{i+1:04d}"
 

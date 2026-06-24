@@ -215,16 +215,6 @@ td { padding: 7px 10px; font-size: 11.5px; }
 .legend { display:flex; gap:12px; padding: 6px 12px; font-size: 9.5px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
 .legend .sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:3px; vertical-align:-1px; }
 
-/* ── Split window ── */
-.split-container { flex: 1; display: flex; overflow: hidden; min-height: 0; }
-.split-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 300px; border-right: 1px solid var(--border); }
-.split-pane:last-child { border-right: none; }
-.split-divider { width: 5px; background: var(--border); cursor: col-resize; flex-shrink: 0; transition: background .15s; }
-.split-divider:hover { background: var(--accent); }
-.split-header { padding: 8px 14px; background: var(--surface2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: 11px; font-weight: 700; }
-.split-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; }
-.split-close:hover { color: var(--red); }
-
 /* ── Modal ── */
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(20,24,40,.45); z-index:100; align-items:center; justify-content:center; }
 .modal-overlay.open { display:flex; }
@@ -307,7 +297,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="nav-label">Tools</div>
     <div class="nav-item" data-page="aicategorize"><span class="ic">🤖</span> AI Categorize</div>
     <div class="nav-item" data-page="ocr"><span class="ic">🔍</span> OCR Extractor</div>
-    <div class="nav-item" id="splitWindowNav"><span class="ic">⊞</span> Split Window</div>
+
     <div class="nav-item" id="chatToggleNav"><span class="ic">≡</span> AI Chat</div>
   </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded</div>
@@ -389,7 +379,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <h1>Upload &amp; Parse</h1>
     <span class="sub" id="parsePageSub">Upload a bank statement PDF for the active quarter</span>
     <div class="right">
-      <button class="btn-sec" id="splitParseBtn">⊞ Split Window</button>
     </div>
   </div>
 
@@ -530,6 +519,9 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="panel">
       <h2>Approval Screen</h2>
       <div class="psub">Review every extracted transaction. Edit anything that looks wrong before locking it in.</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <input type="text" id="approveSearch" placeholder="Search date, description or amount…" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);color:var(--text);outline:none;" oninput="filterApproveTable()"/>
+      </div>
       <div class="wf-table-scroll">
         <table class="wf-table">
           <thead><tr><th>Date</th><th>Description</th><th>Page</th><th style="text-align:right">Amount</th></tr></thead>
@@ -558,6 +550,9 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
       <div class="psub">Similar transactions are grouped semantically. Anything not recognized falls back to description matching.</div>
       <div id="groupedView" style="display:none"></div>
       <div id="flatView">
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <input type="text" id="categorizeSearch" placeholder="Search date, description or amount…" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);color:var(--text);outline:none;" oninput="filterCategorizeTable()"/>
+        </div>
         <div class="wf-table-scroll">
           <table class="wf-table">
             <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Category</th></tr></thead>
@@ -598,6 +593,9 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="panel">
       <h2 style="margin-bottom:8px;">Transaction Detail</h2>
       <div class="psub">Edit any amount — GST and net recalculate automatically (GST = Amount ÷ 11)</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <input type="text" id="gstSearch" placeholder="Search date, description or amount…" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);color:var(--text);outline:none;" oninput="filterGstTable()"/>
+      </div>
       <div class="wf-table-scroll">
         <table class="wf-table">
           <thead><tr><th>Description</th><th>Category</th><th>GST?</th><th style="text-align:right">Amount (inc.GST)</th><th style="text-align:right">GST (÷11)</th><th style="text-align:right">Net (ex.GST)</th></tr></thead>
@@ -793,21 +791,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   </div>
 </div>
 
-<!-- Split Window Modal: pick what to load in pane 2 -->
-<div class="modal-overlay" id="splitModal">
-  <div class="modal">
-    <h2>⊞ Open Split Window</h2>
-    <p>Choose a saved statement from any client/quarter to open side-by-side with the current view.</p>
-    <div class="form-row"><label>Client</label><select id="splitClientSel" class="form-input"><option value="">Select client…</option></select></div>
-    <div class="form-row"><label>Quarter</label><select id="splitQuarterSel" class="form-input" disabled><option value="">Select client first…</option></select></div>
-    <div class="form-row"><label>Statement</label><select id="splitStmtSel" class="form-input" disabled><option value="">Select quarter first…</option></select></div>
-    <div class="modal-footer">
-      <button class="btn-sec" id="splitModalCancel">Cancel</button>
-      <button class="btn" id="splitModalOpen">Open Side by Side →</button>
-    </div>
-  </div>
-</div>
-
 <!-- Ambiguous rows modal -->
 <div class="modal-overlay" id="ambModal">
   <div class="modal">
@@ -884,7 +867,7 @@ function goPage(name) {
   if (name === "aicategorize") loadAiCategorizePage();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
-  if (item.id === "chatToggleNav" || item.id === "splitWindowNav") return;
+  if (item.id === "chatToggleNav") return;
   item.addEventListener("click", () => {
     if (item.classList.contains("disabled")) return;
     goPage(item.dataset.page);
@@ -1033,15 +1016,51 @@ async function showAnnualConsolIfReady() {
   } catch {}
 }
 
-function resumeStatement(id) {
+async function resumeStatement(id) {
   statementId = id;
   activeStatementId = id;
   updateSidebarCtx();
   unlockNav('parse', 'approve', 'categorize', 'gst', 'pnl', 'aicategorize');
-  document.getElementById('sidebarFooter').textContent = `Statement #${id}`;
-  // Go to parse page first (step 1) so user sees context before proceeding
+
+  // Always land on Step 1 (parse page) — show the saved transactions in the table
+  // just like a fresh parse would, no re-upload needed
   goPage('parse');
   loadSavedStatements();
+
+  try {
+    const r = await fetch(`/api/statements/${id}/transactions`);
+    const txns = await r.json();
+    if (!txns.length) return;
+
+    // Get statement meta for bank_id / name
+    const stmts = activeQuarterId
+      ? await fetch(`/api/quarters/${activeQuarterId}/statements`).then(r => r.json()).catch(() => [])
+      : [];
+    const meta = stmts.find(s => s.id === id) || {};
+
+    // Pre-fill the save-as name
+    document.getElementById('stmtNameInput').value = meta.statement_name || meta.filename || '';
+
+    // Update Save button to show it's already saved
+    document.getElementById('saveStmtBtn').textContent = '→ Continue to Approve';
+    document.getElementById('saveStmtBtn').style.background = 'var(--accent)';
+    document.getElementById('workflowBtn').style.display = 'none';
+
+    // Render into the parse page table exactly as a fresh parse would
+    renderParseResult({
+      transactions: txns,
+      ambiguous:    [],
+      bank_id:      meta.bank_id || '?',
+      tmp_token:    null,
+      meta:         { pages: 1 }
+    });
+
+    document.getElementById('sidebarFooter').textContent =
+      `${(meta.bank_id || '?').toUpperCase()} · ${txns.length} txns (saved)`;
+
+  } catch(e) {
+    console.error('Resume failed:', e);
+  }
 }
 
 async function deleteStatement(id) {
@@ -1224,11 +1243,16 @@ dropZone.addEventListener("drop", e => { e.preventDefault(); dropZone.classList.
 fileInput.addEventListener("change", () => { if (fileInput.files[0]) chooseFile(fileInput.files[0]); });
 removeFile.addEventListener("click", () => {
   selectedFile = null; tmpToken = null; detectedBank = null; overrideBank = null;
+  statementId = null; activeStatementId = null;
   fileChosen.style.display = "none"; dropZone.style.display = "block";
   autoChip.className = "auto-chip"; autoLabel.textContent = "Upload a file to auto-detect";
   parseBtn.disabled = true;
   document.getElementById('stmtNameInput').value = '';
   document.querySelectorAll('.bank-btn').forEach(b => b.classList.remove('active'));
+  // Reset save button back to original state
+  document.getElementById('saveStmtBtn').innerHTML = '💾 Save &amp; Continue →';
+  document.getElementById('saveStmtBtn').style.background = 'var(--green)';
+  document.getElementById('workflowBtn').style.display = '';
 });
 
 parseBtn.addEventListener("click", async () => {
@@ -1283,10 +1307,26 @@ function renderParseResult(data) {
 // ── Save statement & proceed ──
 document.getElementById('saveStmtBtn').addEventListener('click', async () => {
   if (!allTxns.length) return;
+  // If this is a resumed saved statement, just go to approve — don't create a duplicate
+  if (statementId) {
+    unlockNav('approve','categorize','gst','pnl','aicategorize');
+    markDone('parse');
+    goPage('approve');
+    return;
+  }
   const name = document.getElementById('stmtNameInput').value.trim() || parseMeta.filename || 'Statement';
   await sendToWorkflow(name);
 });
-document.getElementById('workflowBtn').addEventListener('click', () => sendToWorkflow());
+document.getElementById('workflowBtn').addEventListener('click', () => {
+  // If already saved, just proceed
+  if (statementId) {
+    unlockNav('approve','categorize','gst','pnl','aicategorize');
+    markDone('parse');
+    goPage('approve');
+    return;
+  }
+  sendToWorkflow();
+});
 
 async function sendToWorkflow(nameOverride) {
   try {
@@ -1297,8 +1337,8 @@ async function sendToWorkflow(nameOverride) {
     };
     const r = await fetch("/api/statements", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
     const d = await r.json();
-    statementId = d.id;
-    activeStatementId = d.id;
+    statementId = d.statement_id;
+    activeStatementId = d.statement_id;
     updateSidebarCtx();
     unlockNav('approve','categorize','gst','pnl','aicategorize');
     markDone('parse');
@@ -1462,104 +1502,42 @@ function loadPdfPage(page, highlight, highlights) {
 })();
 
 // ══════════════════════════════════════════════════════════════════════════
-// SPLIT WINDOW
-// ══════════════════════════════════════════════════════════════════════════
-document.getElementById('splitWindowNav').addEventListener('click', openSplitModal);
-document.getElementById('splitParseBtn').addEventListener('click', openSplitModal);
-
-async function openSplitModal() {
-  document.getElementById('splitModal').classList.add('open');
-  const clients = await fetch('/api/clients').then(r => r.json()).catch(() => []);
-  const sel = document.getElementById('splitClientSel');
-  sel.innerHTML = '<option value="">Select client…</option>' + clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
-  document.getElementById('splitQuarterSel').innerHTML = '<option value="">Select client first…</option>';
-  document.getElementById('splitStmtSel').innerHTML = '<option value="">Select quarter first…</option>';
-  document.getElementById('splitQuarterSel').disabled = true;
-  document.getElementById('splitStmtSel').disabled = true;
-}
-
-document.getElementById('splitClientSel').addEventListener('change', async function() {
-  const id = this.value;
-  if (!id) return;
-  const qs = await fetch(`/api/quarters?client_id=${id}`).then(r => r.json()).catch(() => []);
-  const sel = document.getElementById('splitQuarterSel');
-  sel.innerHTML = '<option value="">Select quarter…</option>' + qs.map(q => `<option value="${q.id}">${esc(q.label)}</option>`).join('');
-  sel.disabled = false;
-  document.getElementById('splitStmtSel').innerHTML = '<option value="">Select quarter first…</option>';
-  document.getElementById('splitStmtSel').disabled = true;
-});
-
-document.getElementById('splitQuarterSel').addEventListener('change', async function() {
-  const id = this.value;
-  if (!id) return;
-  const stmts = await fetch(`/api/quarters/${id}/statements`).then(r => r.json()).catch(() => []);
-  const sel = document.getElementById('splitStmtSel');
-  sel.innerHTML = '<option value="">Select statement…</option>' + stmts.map(s => `<option value="${s.id}">${esc(s.statement_name || s.filename || 'Stmt #'+s.id)}</option>`).join('');
-  sel.disabled = false;
-});
-
-document.getElementById('splitModalCancel').addEventListener('click', () => document.getElementById('splitModal').classList.remove('open'));
-document.getElementById('splitModalOpen').addEventListener('click', () => {
-  const stmtId = document.getElementById('splitStmtSel').value;
-  if (!stmtId) return;
-  document.getElementById('splitModal').classList.remove('open');
-  openSplitWindow(parseInt(stmtId));
-});
-
-function openSplitWindow(stmtId) {
-  window.open('/split-view?stmt_id=' + stmtId, 'bas_split_' + stmtId, 'width=960,height=720,resizable=yes,scrollbars=yes');
-}
-// Split window served via /split-view → split.html
-
-// ══════════════════════════════════════════════════════════════════════════
 // WORKFLOW PAGES (Approve / Categorize / GST / PnL)
-// These are unchanged from original — kept compact
 // ══════════════════════════════════════════════════════════════════════════
 
 // ── APPROVE ───────────────────────────────────────────────────────────────
-// Convert date from parser format (08-Oct-2025 or 08-Oct-25) to YYYY-MM-DD for HTML date input
-function toInputDate(d) {
-  if (!d) return '';
-  // Already YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-  // 08-Oct-2025 or 08-Oct-25
-  const months = {jan:'01',feb:'02',mar:'03',apr:'04',may:'05',jun:'06',
-                  jul:'07',aug:'08',sep:'09',oct:'10',nov:'11',dec:'12'};
-  const m = d.match(/^(\d{1,2})[- ]([A-Za-z]{3})[- ](\d{2,4})$/);
-  if (!m) return '';
-  const day  = m[1].padStart(2,'0');
-  const mon  = months[m[2].toLowerCase()] || '01';
-  const year = m[3].length === 2 ? '20' + m[3] : m[3];
-  return `${year}-${mon}-${day}`;
-}
-
-// Convert YYYY-MM-DD back to display format DD-Mon-YYYY
-function fromInputDate(d) {
-  if (!d) return '';
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return d;
-  return `${m[3]}-${months[parseInt(m[2])-1]}-${m[1]}`;
-}
-
+let allApproveRows = [];
 async function loadApprove() {
-  if (!statementId) {
-    document.getElementById("approveBody").innerHTML = '<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--muted);">No statement loaded. Go to Upload &amp; Parse (Step 1) to parse a statement first, or use Client Management to resume a saved statement.</td></tr>';
-    return;
-  }
+  if (!statementId) return;
   document.getElementById("approveSub").textContent = `Statement #${statementId}`;
   const r = await fetch(`/api/statements/${statementId}/transactions`);
   const d = await r.json();
   wfTransactions = d;
-  document.getElementById("approveBody").innerHTML = d.map(t => `
+  allApproveRows = d;
+  document.getElementById('approveSearch').value = '';
+  renderApproveRows(d);
+}
+
+function renderApproveRows(rows) {
+  document.getElementById("approveBody").innerHTML = rows.map(t => `
     <tr>
-      <td><input type="date" value="${toInputDate(t.date)}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);" onchange="patchTxn(${t.id},'date',fromInputDate(this.value))"/></td>
+      <td><input type="date" value="${esc(t.date||'')}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);" onchange="patchTxn(${t.id},'date',this.value)"/></td>
       <td><input type="text" value="${esc(t.description||'')}" style="border:none;background:transparent;font-size:11.5px;color:var(--text);width:100%;" onchange="patchTxn(${t.id},'description',this.value)"/></td>
       <td style="color:var(--muted);font-size:11px;">${t.source_page||''}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11.5px;" class="${t.amount>0?'td-amt pos':'td-amt neg'}">
         <input type="number" value="${t.amount}" step="0.01" style="border:none;background:transparent;font-family:var(--mono);font-size:11.5px;color:inherit;text-align:right;width:100px;" onchange="patchTxn(${t.id},'amount',parseFloat(this.value))"/>
       </td>
     </tr>`).join("");
+}
+
+function filterApproveTable() {
+  const q = document.getElementById('approveSearch').value.toLowerCase();
+  if (!q) { renderApproveRows(allApproveRows); return; }
+  renderApproveRows(allApproveRows.filter(t =>
+    (t.date||'').toLowerCase().includes(q) ||
+    (t.description||'').toLowerCase().includes(q) ||
+    String(t.amount).includes(q)
+  ));
 }
 
 async function patchTxn(id, field, value) {
@@ -1575,6 +1553,7 @@ document.getElementById("approveBtn").addEventListener("click", async () => {
 });
 
 // ── CATEGORIZE ────────────────────────────────────────────────────────────
+let allCatRows = [], allCatOpts = '';
 async function loadCategorize() {
   if (!statementId) return;
   const [txnR, catR] = await Promise.all([
@@ -1582,23 +1561,39 @@ async function loadCategorize() {
     fetch("/api/categories").then(r=>r.json())
   ]);
   wfTransactions = txnR; categories = catR;
+  allCatRows = txnR;
+  allCatOpts = '<option value="">Uncategorized</option>' + catR.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const done = txnR.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${txnR.length} categorized`;
+  document.getElementById('categorizeSearch').value = '';
 
   if (groupedMode) {
     loadGroupedView();
   } else {
-    const catOpts = '<option value="">Uncategorized</option>' + catR.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
-    document.getElementById("categorizeBody").innerHTML = txnR.map(t => `
-      <tr>
-        <td class="td-date">${esc(t.date)}</td>
-        <td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td>
-        <td class="td-amt ${t.amount>0?'pos':'neg'}">${fmt(t.amount)}</td>
-        <td><select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);width:100%;" onchange="categorizeTxn(${t.id}, this.value)">
-          ${catOpts.replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`)}
-        </select></td>
-      </tr>`).join('');
+    renderCategorizeRows(txnR);
   }
+}
+
+function renderCategorizeRows(rows) {
+  document.getElementById("categorizeBody").innerHTML = rows.map(t => `
+    <tr>
+      <td class="td-date">${esc(t.date)}</td>
+      <td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td>
+      <td class="td-amt ${t.amount>0?'pos':'neg'}">${fmt(t.amount)}</td>
+      <td><select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);width:100%;" onchange="categorizeTxn(${t.id}, this.value)">
+        ${allCatOpts.replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`)}
+      </select></td>
+    </tr>`).join('');
+}
+
+function filterCategorizeTable() {
+  const q = document.getElementById('categorizeSearch').value.toLowerCase();
+  if (!q) { renderCategorizeRows(allCatRows); return; }
+  renderCategorizeRows(allCatRows.filter(t =>
+    (t.date||'').toLowerCase().includes(q) ||
+    (t.description||'').toLowerCase().includes(q) ||
+    String(t.amount).includes(q)
+  ));
 }
 
 async function categorizeTxn(id, catId) {
@@ -1642,6 +1637,7 @@ document.getElementById("catContinueBtn").addEventListener("click", async () => 
 });
 
 // ── GST ───────────────────────────────────────────────────────────────────
+let allGstRows = [];
 async function loadGst() {
   if (!statementId) return;
   const d = await fetch(`/api/statements/${statementId}/gst`).then(r=>r.json());
@@ -1665,12 +1661,29 @@ async function loadGst() {
     <td style="text-align:right">${fmt(c.gross)}</td><td style="text-align:right">${fmt(c.gst)}</td><td style="text-align:right">${fmt(c.net)}</td><td style="text-align:right">${c.count}</td></tr>`).join('');
 
   // Txn detail
-  document.getElementById('gstBody').innerHTML = (d.transactions||[]).map(t => `
+  allGstRows = d.transactions || [];
+  document.getElementById('gstSearch').value = '';
+  renderGstRows(allGstRows);
+}
+
+function renderGstRows(rows) {
+  document.getElementById('gstBody').innerHTML = rows.map(t => `
     <tr><td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td><td>${esc(t.category_name||'—')}</td>
     <td style="text-align:center;">${t.gst_applicable?'✓':'—'}</td>
     <td style="text-align:right"><input type="number" value="${t.amount}" step="0.01" style="border:none;background:transparent;font-family:var(--mono);font-size:11.5px;text-align:right;width:90px;" onchange="patchGst(${t.id},this.value)"/></td>
     <td style="text-align:right;font-family:var(--mono);">${fmt(t.gst_amount)}</td>
     <td style="text-align:right;font-family:var(--mono);">${fmt(t.net_amount)}</td></tr>`).join('');
+}
+
+function filterGstTable() {
+  const q = document.getElementById('gstSearch').value.toLowerCase();
+  if (!q) { renderGstRows(allGstRows); return; }
+  renderGstRows(allGstRows.filter(t =>
+    (t.date||'').toLowerCase().includes(q) ||
+    (t.description||'').toLowerCase().includes(q) ||
+    String(t.amount).includes(q) ||
+    (t.category_name||'').toLowerCase().includes(q)
+  ));
 }
 
 async function patchGst(id, val) {
