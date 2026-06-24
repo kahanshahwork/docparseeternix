@@ -1240,7 +1240,7 @@ async function showAnnualConsolIfReady() {
   try {
     const qs = await fetch(`/api/quarters?client_id=${activeClientId}`).then(r => r.json());
     document.getElementById('annualConsolSection').style.display = qs.length >= 2 ? 'block' : 'none';
-  } catch {}
+  } catch(_e) {}
 }
 
 async function resumeStatement(id) {
@@ -1593,7 +1593,7 @@ async function loadSavedStatements() {
         <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.statement_name || s.filename || 'Statement #'+s.id)}</span>
         <button class="btn-sec" onclick="resumeStatement(${s.id})" style="font-size:10px;padding:3px 8px;">Load</button>
       </div>`).join('');
-  } catch {}
+  } catch(_e) {}
 }
 
 // Load saved stmts when parse page opens
@@ -2428,10 +2428,13 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let fullText = '';
-      let textNode = null;
+      let fullText = '';        // final answer only
+      let reasonText = '';      // thinking trace
+      let textNode = null;      // final answer span
+      let reasonNode = null;    // thinking span
+      let reasonWrap = null;    // collapsible wrapper
       let tokenCount = 0;
-      let firstToken = false;
+      let firstAnswerToken = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -2445,33 +2448,57 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
           if (data === '[DONE]') break;
           try {
             const chunk = JSON.parse(data);
-            const delta = chunk.choices?.[0]?.delta?.content || '';
-            if (delta) {
-              if (!firstToken) {
-                // Phase 3: first token — switch card to streaming
-                firstToken = true;
-                setProcPhase('stream');
-              }
-              fullText += delta;
-              tokenCount++;
-              updateStreamSub(tokenCount);
+            const delta = chunk.choices?.[0]?.delta || {};
+            const isReasoning = delta.reasoning === true;
+            // Strip the zero-width prefix we added server-side
+            const rawContent = (delta.content || '').replace(/^\u200b/, '');
 
-              // Replace proc card with real text bubble on first token
-              // but keep card visible until we have a decent chunk to show
-              if (tokenCount === 1) {
+            if (isReasoning && rawContent) {
+              // Reasoning / thinking tokens
+              reasonText += rawContent;
+              if (!reasonWrap) {
+                // First reasoning token — create thinking bubble
+                nvEmptyState.style.display = 'none';
+                reasonWrap = document.createElement('div');
+                reasonWrap.className = 'nvidia-msg assistant';
+                reasonWrap.innerHTML = `
+                  <div class="avatar" style="opacity:.5;">🧠</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:10px;color:var(--muted);margin-bottom:4px;cursor:pointer;user-select:none;" id="nvThinkToggle" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'':'none';this.textContent=this.nextElementSibling.style.display===''?'▼ Thinking…':'▶ Thinking (collapsed)'">▼ Thinking…</div>
+                    <div id="nvThinkBody" style="background:var(--surface3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:10.5px;font-family:var(--mono);line-height:1.6;color:var(--text-dim);white-space:pre-wrap;max-height:180px;overflow-y:auto;word-break:break-word;"></div>
+                  </div>`;
+                nvMessages.insertBefore(reasonWrap, null);
+                nvMessages.appendChild(reasonWrap);
+              }
+              const thinkBody = document.getElementById('nvThinkBody');
+              if (thinkBody) { thinkBody.textContent = reasonText; thinkBody.scrollTop = thinkBody.scrollHeight; }
+              nvMessages.scrollTop = nvMessages.scrollHeight;
+
+            } else if (!isReasoning && rawContent) {
+              // Actual answer tokens
+              if (!firstAnswerToken) {
+                firstAnswerToken = true;
+                setProcPhase('stream');
                 removeProcCard();
                 textNode = appendNvBubble('assistant', '');
               }
+              fullText += rawContent;
+              tokenCount++;
+              updateStreamSub(tokenCount);
               textNode.textContent = fullText;
               nvMessages.scrollTop = nvMessages.scrollHeight;
             }
-          } catch {}
+          } catch(_e) {}
         }
       }
 
-      if (!firstToken) {
+      if (!firstAnswerToken && !reasonText) {
         removeProcCard();
-        appendNvBubble('assistant', '(No response received)');
+        appendNvBubble('assistant', '(No response received — try again)');
+      } else if (!firstAnswerToken && reasonText) {
+        // Reasoning came but answer was empty — token budget exhausted
+        removeProcCard();
+        appendNvBubble('assistant', '⚠ Model ran out of token budget during reasoning. The thinking trace is shown above. Try a simpler prompt or smaller image.');
       }
 
       nvHistory.push({ role: 'user', content: promptText });
@@ -2506,7 +2533,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
     text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
 
     // 2. Try direct parse first
-    try { return JSON.parse(text.trim()); } catch {}
+    try { return JSON.parse(text.trim()); } catch(_e) {}
 
     // 3. Find the first [ and last ] — extract just that block
     const firstBracket = text.indexOf('[');
@@ -2517,7 +2544,7 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
       const fixed = candidate
         .replace(/,\s*}/g, '}')
         .replace(/,\s*]/g, ']');
-      try { return JSON.parse(fixed); } catch {}
+      try { return JSON.parse(fixed); } catch(_e) {}
     }
 
     // 4. Find first { and last } — maybe it's an object not wrapped in array
@@ -2527,13 +2554,16 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
       const candidate = text.slice(firstBrace, lastBrace + 1)
         .replace(/,\s*}/g, '}')
         .replace(/,\s*]/g, ']');
-      try { return JSON.parse(candidate); } catch {}
+      try { return JSON.parse(candidate); } catch(_e) {}
       // Try wrapping in array
-      try { return JSON.parse('[' + candidate + ']'); } catch {}
+      try { return JSON.parse('[' + candidate + ']'); } catch(_e) {}
     }
 
     return null;
   }
+
+  // Parse a money string like "-$1,650.00" or "$25,000.00" or "1650" → float
+  function parseMoney(s) {
     if (!s && s !== 0) return null;
     const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
     return isNaN(n) ? null : n;
@@ -2688,18 +2718,18 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
   // ══════════════════════════════════════════════════════════════════════════
   // OCR TOOL (original)
   // ══════════════════════════════════════════════════════════════════════════
-  const dropZone  = document.getElementById('ocrDropZone');
-  const fileInput = document.getElementById('ocrFileInput');
-  const fileChosen= document.getElementById('ocrFileChosen');
-  const fileName  = document.getElementById('ocrFileName');
-  const removeBtn = document.getElementById('ocrRemoveFile');
-  const runBtn    = document.getElementById('ocrRunBtn');
-  const spinner   = document.getElementById('ocrSpinner');
-  const btnText   = document.getElementById('ocrBtnText');
-  const textResult= document.getElementById('ocrTextResult');
-  const copyBtn   = document.getElementById('ocrCopyBtn');
-  const dlBtn     = document.getElementById('ocrDownloadBtn');
-  const statusBox = document.getElementById('ocrStatusBox');
+  const ocrDropZone  = document.getElementById('ocrDropZone');
+  const ocrFileInput = document.getElementById('ocrFileInput');
+  const ocrFileChosen= document.getElementById('ocrFileChosen');
+  const ocrFileName  = document.getElementById('ocrFileName');
+  const ocrRemoveBtn = document.getElementById('ocrRemoveFile');
+  const ocrRunBtn    = document.getElementById('ocrRunBtn');
+  const ocrSpinner   = document.getElementById('ocrSpinner');
+  const ocrBtnText   = document.getElementById('ocrBtnText');
+  const ocrTextResult= document.getElementById('ocrTextResult');
+  const ocrCopyBtn   = document.getElementById('ocrCopyBtn');
+  const ocrDlBtn     = document.getElementById('ocrDownloadBtn');
+  const ocrStatusBox = document.getElementById('ocrStatusBox');
   let ocrFile = null;
 
   // Check Tesseract status on load
@@ -2708,13 +2738,13 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
       const r = await fetch('/tools/ocr/status');
       const d = await r.json();
       if (d.tesseract_available) {
-        statusBox.style.background = 'var(--green-lo)';
-        statusBox.style.borderColor = 'rgba(21,128,61,.25)';
-        statusBox.innerHTML = `<div style="color:var(--green);font-weight:700;">✓ Tesseract ${d.version} ready</div><div style="color:var(--text-dim);margin-top:2px;">${esc(d.message)}</div>`;
+        ocrStatusBox.style.background = 'var(--green-lo)';
+        ocrStatusBox.style.borderColor = 'rgba(21,128,61,.25)';
+        ocrStatusBox.innerHTML = `<div style="color:var(--green);font-weight:700;">✓ Tesseract ${d.version} ready</div><div style="color:var(--text-dim);margin-top:2px;">${esc(d.message)}</div>`;
       } else {
-        statusBox.style.background = 'var(--red-lo)';
-        statusBox.style.borderColor = 'rgba(220,38,38,.25)';
-        statusBox.innerHTML = `
+        ocrStatusBox.style.background = 'var(--red-lo)';
+        ocrStatusBox.style.borderColor = 'rgba(220,38,38,.25)';
+        ocrStatusBox.innerHTML = `
           <div style="color:var(--red);font-weight:700;">✗ Tesseract not found</div>
           <div style="color:var(--text-dim);margin-top:4px;line-height:1.6;">
             <strong>To fix:</strong><br>
@@ -2727,57 +2757,57 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
           </div>`;
       }
     } catch(e) {
-      statusBox.innerHTML = `<div style="color:var(--muted);">Could not check status: ${esc(e.message)}</div>`;
+      ocrStatusBox.innerHTML = `<div style="color:var(--muted);">Could not check status: ${esc(e.message)}</div>`;
     }
   }
   checkOcrStatus();
 
   function chooseOcrFile(f) {
     ocrFile = f;
-    fileName.textContent = f.name;
-    fileChosen.style.display = 'flex';
-    dropZone.style.display = 'none';
-    runBtn.disabled = false;
+    ocrFileName.textContent = f.name;
+    ocrFileChosen.style.display = 'flex';
+    ocrDropZone.style.display = 'none';
+    ocrRunBtn.disabled = false;
     document.getElementById('ocrFileIcon').textContent = f.type.startsWith('image') ? '🖼' : '📄';
   }
 
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
-  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag'); if(e.dataTransfer.files[0]) chooseOcrFile(e.dataTransfer.files[0]); });
-  fileInput.addEventListener('change', () => { if(fileInput.files[0]) chooseOcrFile(fileInput.files[0]); });
-  removeBtn.addEventListener('click', () => {
-    ocrFile = null; fileChosen.style.display = 'none'; dropZone.style.display = 'block';
-    runBtn.disabled = true; textResult.value = '';
+  ocrDropZone.addEventListener('click', () => ocrFileInput.click());
+  ocrDropZone.addEventListener('dragover', e => { e.preventDefault(); ocrDropZone.classList.add('drag'); });
+  ocrDropZone.addEventListener('dragleave', () => ocrDropZone.classList.remove('drag'));
+  ocrDropZone.addEventListener('drop', e => { e.preventDefault(); ocrDropZone.classList.remove('drag'); if(e.dataTransfer.files[0]) chooseOcrFile(e.dataTransfer.files[0]); });
+  ocrFileInput.addEventListener('change', () => { if(ocrFileInput.files[0]) chooseOcrFile(ocrFileInput.files[0]); });
+  ocrRemoveBtn.addEventListener('click', () => {
+    ocrFile = null; ocrFileChosen.style.display = 'none'; ocrDropZone.style.display = 'block';
+    ocrRunBtn.disabled = true; ocrTextResult.value = '';
     document.getElementById('ocrStatsSection').style.display = 'none';
-    copyBtn.style.display = 'none'; dlBtn.style.display = 'none';
+    ocrCopyBtn.style.display = 'none'; ocrDlBtn.style.display = 'none';
   });
 
-  runBtn.addEventListener('click', async () => {
+  ocrRunBtn.addEventListener('click', async () => {
     if (!ocrFile) return;
-    spinner.style.display = 'block'; btnText.textContent = 'Extracting…'; runBtn.disabled = true;
-    textResult.value = '';
+    ocrSpinner.style.display = 'block'; ocrBtnText.textContent = 'Extracting…'; ocrRunBtn.disabled = true;
+    ocrTextResult.value = '';
     try {
       const fd = new FormData(); fd.append('file', ocrFile);
       const r = await fetch('/tools/ocr/extract', { method:'POST', body: fd });
       const d = await r.json();
-      if (d.error) { textResult.value = '⚠ ERROR: ' + d.error; return; }
-      textResult.value = d.text || '(no text extracted)';
+      if (d.error) { ocrTextResult.value = '⚠ ERROR: ' + d.error; return; }
+      ocrTextResult.value = d.text || '(no text extracted)';
       document.getElementById('ocrWordCount').textContent = d.word_count || 0;
       document.getElementById('ocrLineCount').textContent = d.line_count || 0;
       document.getElementById('ocrStatsSection').style.display = 'block';
-      copyBtn.style.display = 'inline-flex';
-      dlBtn.style.display = 'inline-flex';
+      ocrCopyBtn.style.display = 'inline-flex';
+      ocrDlBtn.style.display = 'inline-flex';
     } catch(e) {
-      textResult.value = '⚠ ' + e.message;
+      ocrTextResult.value = '⚠ ' + e.message;
     } finally {
-      spinner.style.display = 'none'; btnText.textContent = 'Extract Text'; runBtn.disabled = false;
+      ocrSpinner.style.display = 'none'; ocrBtnText.textContent = 'Extract Text'; ocrRunBtn.disabled = false;
     }
   });
 
-  copyBtn.addEventListener('click', () => { navigator.clipboard.writeText(textResult.value); copyBtn.textContent = 'Copied!'; setTimeout(() => copyBtn.textContent = 'Copy All', 1500); });
-  dlBtn.addEventListener('click', () => {
-    const a = document.createElement('a'); a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(textResult.value);
+  ocrCopyBtn.addEventListener('click', () => { navigator.clipboard.writeText(ocrTextResult.value); ocrCopyBtn.textContent = 'Copied!'; setTimeout(() => ocrCopyBtn.textContent = 'Copy All', 1500); });
+  ocrDlBtn.addEventListener('click', () => {
+    const a = document.createElement('a'); a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(ocrTextResult.value);
     a.download = 'ocr_extract.txt'; a.click();
   });
 })();
