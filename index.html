@@ -1597,30 +1597,71 @@ function filterCategorizeTable() {
 }
 
 async function categorizeTxn(id, catId) {
-  await fetch(`/api/statements/${statementId}/categorize`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({transaction_id: id, category_id: catId ? parseInt(catId) : null}) });
+  await fetch(`/api/statements/${statementId}/categorize`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({transaction_ids: [id], category_id: catId ? parseInt(catId) : null}) });
+  const t = wfTransactions.find(x => x.id === id);
+  if (t) t.category_id = catId ? parseInt(catId) : null;
   const done = wfTransactions.filter(t => t.category_id || t.id === id).length;
   document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
 }
 
 async function loadGroupedView() {
   const r = await fetch(`/api/statements/${statementId}/groups`).then(r=>r.json());
-  const catOpts = '<option value="">Uncategorized</option>' + categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const gv = document.getElementById("groupedView");
-  gv.innerHTML = r.groups ? r.groups.map(g => `
-    <div style="margin-bottom:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden;">
-      <div style="padding:10px 14px; background:var(--surface2); display:flex; align-items:center; gap:10px;">
-        <span style="flex:1; font-size:12px; font-weight:700;">${esc(g.group_key)}</span>
-        <span style="font-size:10px; color:var(--muted);">${g.count} transactions · ${fmt(g.total)}</span>
-        <select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;" onchange="categorizeGroup('${esc(g.group_key)}', this.value)">
-          ${catOpts}
-        </select>
+
+  function renderGroupSection(groups, sectionLabel, sectionColor) {
+    if (!groups || !groups.length) return '';
+    const catOpts = '<option value="">Uncategorized</option>' + categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    return `
+      <div style="margin-bottom:6px;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:${sectionColor};">
+        ${sectionLabel} (${groups.length} group${groups.length>1?'s':''})
       </div>
-      <div style="padding:8px 14px; font-size:10.5px; color:var(--text-dim);">${g.samples.map(s=>esc(s)).join(' · ')}</div>
-    </div>`).join('') : '<div style="color:var(--muted);padding:20px;text-align:center;">No groups available.</div>';
+      ${groups.map(g => {
+        // Build select with dominant category pre-selected
+        const domId = g.dominant_category_id;
+        const selOpts = '<option value=""' + (!domId?' selected':'') + '>Uncategorized</option>' +
+          categories.map(c => `<option value="${c.id}"${c.id===domId?' selected':''}>${esc(c.name)}</option>`).join('');
+        const txnIds = (g.transactions || []).map(t => t.id);
+        // Sample descriptions from transactions
+        const samples = [...new Set((g.transactions||[]).map(t=>t.description).filter(Boolean))].slice(0,3);
+        return `
+          <div style="margin-bottom:10px; border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+            <div style="padding:10px 14px; background:var(--surface2); display:flex; align-items:center; gap:10px;">
+              <span style="flex:1; font-size:12px; font-weight:700;">${esc(g.group_key)}</span>
+              <span style="font-size:10px; color:var(--muted);">${g.count} txns · ${fmt(g.total)}</span>
+              <select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);"
+                onchange="categorizeGroup([${txnIds.join(',')}], this.value, this)">
+                ${selOpts}
+              </select>
+            </div>
+            ${samples.length ? `<div style="padding:6px 14px 8px; font-size:10.5px; color:var(--text-dim);">${samples.map(s=>esc(s)).join(' · ')}</div>` : ''}
+          </div>`;
+      }).join('')}`;
+  }
+
+  const debitHtml  = renderGroupSection(r.debit,  '💸 Money Out (Debits)',  'var(--red)');
+  const creditHtml = renderGroupSection(r.credit, '💰 Money In (Credits)', 'var(--green)');
+
+  if (!debitHtml && !creditHtml) {
+    gv.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;">No groups available.</div>';
+  } else {
+    gv.innerHTML = debitHtml + creditHtml;
+  }
 }
 
-async function categorizeGroup(groupKey, catId) {
-  await fetch(`/api/statements/${statementId}/categorize/group`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({group_key: groupKey, category_id: catId ? parseInt(catId) : null}) });
+async function categorizeGroup(txnIds, catId, selectEl) {
+  if (!catId || !txnIds.length) return;
+  const catIdInt = parseInt(catId);
+  await fetch(`/api/statements/${statementId}/categorize`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ transaction_ids: txnIds, category_id: catIdInt })
+  });
+  // Update local wfTransactions cache so progress counter stays accurate
+  txnIds.forEach(id => {
+    const t = wfTransactions.find(x => x.id === id);
+    if (t) t.category_id = catIdInt;
+  });
+  const done = wfTransactions.filter(t => t.category_id).length;
+  document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
 }
 
 document.getElementById("toggleGroupView").addEventListener("click", () => {
@@ -1648,16 +1689,17 @@ async function loadGst() {
     {key:'G11', label:'G11 – Non-capital purchases'}, {key:'1A', label:'1A – GST on sales'},
     {key:'1B', label:'1B – GST on purchases'}, {key:'net', label:'Net GST Payable'}
   ];
+  const bas = d.summary?.bas || {};
   document.getElementById('gstBasGrid').innerHTML = basFields.map(f => `
-    <div class="gst-tile"><div class="gst-tile gk">${esc(f.key)}</div><div class="gv">${fmt(d.bas?.[f.key] || 0)}</div><div class="gl">${esc(f.label.split('–')[1]||f.label)}</div></div>`).join('');
+    <div class="gst-tile"><div class="gst-tile gk">${esc(f.key)}</div><div class="gv">${fmt(bas[f.key] || 0)}</div><div class="gl">${esc(f.label.split('–')[1]||f.label)}</div></div>`).join('');
 
-  const net = (d.bas?.['1A']||0) - (d.bas?.['1B']||0);
+  const net = (bas['1A']||0) - (bas['1B']||0);
   document.getElementById('gstNetPanel').style.background = net >= 0 ? 'var(--red-lo)' : 'var(--green-lo)';
   document.getElementById('gstNetPanel').innerHTML = `<span style="font-size:13px;font-weight:700;">Net GST ${net>=0?'Payable':'Refundable'}</span><span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${net>=0?'var(--red)':'var(--green)'};">${fmt(Math.abs(net))}</span>`;
 
-  // Category table
-  document.getElementById('gstCategoryBody').innerHTML = (d.by_category||[]).map(c => `
-    <tr><td>${esc(c.category_name)}</td><td>${esc(c.pnl_group)}</td><td><span class="badge cr">${esc(c.bas_label||'—')}</span></td>
+  // Category table — API returns d.summary.by_category with keys: category, pnl_group, bas_label, gross, gst, net, count
+  document.getElementById('gstCategoryBody').innerHTML = (d.summary?.by_category||[]).map(c => `
+    <tr><td>${esc(c.category)}</td><td>${esc(c.pnl_group)}</td><td><span class="badge cr">${esc(c.bas_label||'—')}</span></td>
     <td style="text-align:right">${fmt(c.gross)}</td><td style="text-align:right">${fmt(c.gst)}</td><td style="text-align:right">${fmt(c.net)}</td><td style="text-align:right">${c.count}</td></tr>`).join('');
 
   // Txn detail
@@ -1699,23 +1741,23 @@ document.getElementById("gstContinueBtn").addEventListener("click", async () => 
 async function loadPnl() {
   if (!statementId) return;
   const d = await fetch(`/api/statements/${statementId}/pnl`).then(r=>r.json());
+  // API returns: { income_lines: [{category, amount}], expense_lines: [{category, amount}],
+  //               total_income, total_expense, net_profit }
   const sections = [
-    { title: 'Income', group: 'Income', color: 'var(--green)' },
-    { title: 'Expenses', group: 'Expense', color: 'var(--red)' }
+    { title: 'Income',   lines: d.income_lines  || [], total: d.total_income  || 0, color: 'var(--green)' },
+    { title: 'Expenses', lines: d.expense_lines || [], total: d.total_expense || 0, color: 'var(--red)' },
   ];
-  let html = sections.map(s => {
-    const items = (d.by_category||[]).filter(c => c.pnl_group === s.group);
-    const total = items.reduce((a, c) => a + (c.net||0), 0);
-    return `<div style="margin-bottom:20px;">
+  let html = sections.map(s => `
+    <div style="margin-bottom:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
         <h3 style="font-size:13px;font-weight:700;color:${s.color};">${s.title}</h3>
-        <span style="font-family:var(--mono);font-weight:700;color:${s.color};">${fmt(total)}</span>
+        <span style="font-family:var(--mono);font-weight:700;color:${s.color};">${fmt(s.total)}</span>
       </div>
-      ${items.map(c=>`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);">
-        <span>${esc(c.category_name)}</span><span style="font-family:var(--mono);">${fmt(c.net)}</span></div>`).join('')}
-    </div>`;
-  }).join('');
-  const netProfit = (d.summary?.net_profit || 0);
+      ${s.lines.length ? s.lines.map(c=>`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);">
+        <span>${esc(c.category)}</span><span style="font-family:var(--mono);">${fmt(c.amount)}</span></div>`).join('') :
+        `<div style="color:var(--muted);font-size:12px;padding:8px 0;">No ${s.title.toLowerCase()} lines</div>`}
+    </div>`).join('');
+  const netProfit = d.net_profit || 0;
   html += `<div style="padding:14px;background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-radius:10px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
     <span style="font-size:14px;font-weight:700;">Net Profit / Loss</span>
     <span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</span>
