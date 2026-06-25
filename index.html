@@ -215,6 +215,16 @@ td { padding: 7px 10px; font-size: 11.5px; }
 .legend { display:flex; gap:12px; padding: 6px 12px; font-size: 9.5px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
 .legend .sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:3px; vertical-align:-1px; }
 
+/* ── Split window ── */
+.split-container { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+.split-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 300px; border-right: 1px solid var(--border); }
+.split-pane:last-child { border-right: none; }
+.split-divider { width: 5px; background: var(--border); cursor: col-resize; flex-shrink: 0; transition: background .15s; }
+.split-divider:hover { background: var(--accent); }
+.split-header { padding: 8px 14px; background: var(--surface2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: 11px; font-weight: 700; }
+.split-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; }
+.split-close:hover { color: var(--red); }
+
 /* ── Modal ── */
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(20,24,40,.45); z-index:100; align-items:center; justify-content:center; }
 .modal-overlay.open { display:flex; }
@@ -242,69 +252,11 @@ select.form-input { cursor: pointer; }
 .gst-tile .gl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
 .gst-tile .gk { font-size: 8px; color: var(--accent); font-weight: 700; background: var(--accent-lo); padding: 1px 5px; border-radius: 3px; display: inline-block; margin-bottom: 5px; }
 
-/* ── AI Vision / OCR Tool ── */
+/* ── OCR Tool ── */
 .ocr-layout { flex: 1; display: flex; overflow: hidden; min-height: 0; }
 .ocr-upload-panel { width: 300px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 .ocr-result-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 16px; background: var(--surface2); }
 .ocr-result-panel textarea { flex: 1; width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--text); background: var(--surface); resize: none; outline: none; }
-
-/* ── AI Vision Tabs ── */
-.vision-tabs { display: flex; gap: 4px; padding: 0 0 14px 0; flex-shrink: 0; }
-.vision-tab { padding: 7px 16px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--border2); background: var(--surface2); color: var(--text-dim); transition: all .15s; }
-.vision-tab.active { background: var(--accent-lo); border-color: var(--accent); color: var(--accent); }
-.vision-tab-panel { display: none; flex: 1; min-height: 0; flex-direction: column; }
-.vision-tab-panel.active { display: flex; }
-
-/* ── NVIDIA Chat Playground ── */
-.nvidia-playground { flex: 1; display: flex; min-height: 0; gap: 0; }
-.nvidia-sidebar { width: 260px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-.nvidia-sidebar .sb-section { padding: 14px; border-bottom: 1px solid var(--border); }
-.nvidia-chat-area { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--surface2); }
-.nvidia-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-.nvidia-msg { display: flex; gap: 10px; align-items: flex-start; max-width: 820px; }
-.nvidia-msg.user { flex-direction: row-reverse; align-self: flex-end; }
-.nvidia-msg .avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; margin-top: 2px; }
-.nvidia-msg.user .avatar { background: var(--accent); }
-.nvidia-msg.assistant .avatar { background: var(--surface3); border: 1px solid var(--border2); }
-.nvidia-bubble { padding: 10px 14px; border-radius: 12px; font-size: 12.5px; line-height: 1.7; max-width: 680px; word-break: break-word; white-space: pre-wrap; }
-.nvidia-msg.user .nvidia-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
-.nvidia-msg.assistant .nvidia-bubble { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; }
-.nvidia-msg .img-preview { max-width: 200px; max-height: 140px; border-radius: 8px; margin-bottom: 6px; display: block; object-fit: cover; border: 1px solid rgba(255,255,255,.2); }
-.nvidia-typing { display: flex; gap: 4px; align-items: center; padding: 10px 14px; }
-.nvidia-typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: nvdot .9s infinite; }
-.nvidia-typing span:nth-child(2) { animation-delay: .2s; }
-.nvidia-typing span:nth-child(3) { animation-delay: .4s; }
-@keyframes nvdot { 0%,60%,100%{opacity:.25;transform:scale(.9)} 30%{opacity:1;transform:scale(1.1)} }
-.nvidia-input-bar { padding: 12px 14px; background: var(--surface); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
-.nvidia-img-attach { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; }
-.nvidia-img-attach img { max-height: 40px; max-width: 60px; border-radius: 5px; object-fit: cover; }
-.nvidia-img-attach .remove-img { cursor: pointer; color: var(--muted); font-size: 14px; margin-left: auto; }
-.nvidia-img-attach .remove-img:hover { color: var(--red); }
-.nvidia-input-row { display: flex; gap: 8px; align-items: flex-end; }
-.nvidia-input-row textarea { flex: 1; background: var(--surface2); border: 1px solid var(--border2); border-radius: 10px; padding: 9px 12px; color: var(--text); font-size: 12.5px; font-family: var(--sans); line-height: 1.5; resize: none; outline: none; min-height: 40px; max-height: 120px; overflow-y: auto; }
-.nvidia-input-row textarea:focus { border-color: var(--accent); }
-.nvidia-send-btn { background: var(--accent); border: none; border-radius: 9px; width: 38px; height: 38px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.nvidia-send-btn:disabled { opacity: .4; cursor: not-allowed; }
-.nvidia-send-btn svg { width: 16px; height: 16px; fill: #fff; }
-.nvidia-attach-btn { background: var(--surface2); border: 1px solid var(--border2); border-radius: 9px; width: 38px; height: 38px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--text-dim); font-size: 17px; }
-.nvidia-attach-btn:hover { border-color: var(--accent); color: var(--accent); }
-.nvidia-empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--text-dim); }
-/* ── NVIDIA processing status bar ── */
-.nv-proc-card { background:var(--surface); border:1px solid var(--border2); border-radius:12px; border-bottom-left-radius:4px; padding:14px 16px; min-width:260px; max-width:340px; }
-.nv-proc-phase { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-.nv-proc-phase:last-child { margin-bottom:0; }
-.nv-phase-icon { font-size:18px; width:28px; text-align:center; flex-shrink:0; }
-.nv-phase-info { flex:1; }
-.nv-phase-label { font-size:12px; font-weight:600; color:var(--text); }
-.nv-phase-sub { font-size:10.5px; color:var(--text-dim); margin-top:1px; }
-.nv-phase-badge { font-size:9px; font-weight:700; padding:2px 7px; border-radius:99px; margin-left:auto; flex-shrink:0; }
-.nv-phase-badge.active { background:var(--accent-lo); color:var(--accent); animation:nvbadge 1.4s ease-in-out infinite; }
-.nv-phase-badge.done-badge { background:var(--green-lo); color:var(--green); }
-.nv-phase-badge.pending { background:var(--surface3); color:var(--muted); }
-@keyframes nvbadge { 0%,100%{opacity:.6} 50%{opacity:1} }
-.nv-progress-bar { height:3px; border-radius:2px; background:var(--surface3); margin-top:12px; overflow:hidden; }
-.nv-progress-fill { height:100%; border-radius:2px; background:var(--accent); transition:width .4s ease; }
-.nv-timer-row { display:flex; justify-content:space-between; margin-top:8px; font-size:10px; color:var(--muted); font-family:var(--mono); }
 
 /* ── Consolidation section ── */
 .consol-section { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-top: 14px; }
@@ -354,8 +306,8 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="nav-group">
     <div class="nav-label">Tools</div>
     <div class="nav-item" data-page="aicategorize"><span class="ic">🤖</span> AI Categorize</div>
-    <div class="nav-item" data-page="ocr"><span class="ic">🤖</span> AI Vision</div>
-
+    <div class="nav-item" data-page="ocr"><span class="ic">🔍</span> OCR Extractor</div>
+    <div class="nav-item" id="splitWindowNav"><span class="ic">⊞</span> Split Window</div>
     <div class="nav-item" id="chatToggleNav"><span class="ic">≡</span> AI Chat</div>
   </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded</div>
@@ -437,6 +389,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <h1>Upload &amp; Parse</h1>
     <span class="sub" id="parsePageSub">Upload a bank statement PDF for the active quarter</span>
     <div class="right">
+      <button class="btn-sec" id="splitParseBtn">⊞ Split Window</button>
     </div>
   </div>
 
@@ -456,32 +409,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
           <span style="font-size:17px;">📄</span>
           <span class="file-name" id="fileNameLabel"></span>
           <button class="file-remove" id="removeFile" title="Remove">✕</button>
-        </div>
-      </div>
-
-      <!-- CSV / Excel import — alternative to PDF -->
-      <div class="sb-section" style="border-top:1px dashed var(--border);padding-top:14px;">
-        <div class="sb-label">Or Import CSV / Excel</div>
-        <div class="drop-zone" id="csvDropZone" style="padding:12px 10px;">
-          <div class="drop-icon" style="font-size:20px;">📊</div>
-          <div class="drop-hint" style="font-size:11px;"><strong>Click or drop</strong> a CSV or Excel file</div>
-          <div style="font-size:9px;color:var(--muted);margin-top:2px;">.csv · .xlsx · .xls</div>
-        </div>
-        <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" style="display:none"/>
-        <div class="file-chosen" id="csvFileChosen" style="display:none;">
-          <span style="font-size:17px;">📊</span>
-          <span class="file-name" id="csvFileName"></span>
-          <button class="file-remove" id="csvRemoveFile" title="Remove">✕</button>
-        </div>
-        <div id="csvErrorBox" style="display:none;background:var(--red-lo);border:1px solid rgba(220,38,38,.2);border-radius:6px;padding:6px 8px;font-size:10.5px;color:var(--red);margin-top:6px;"></div>
-        <button class="btn parse-btn" id="csvImportBtn" disabled style="margin-top:8px;">
-          <span id="csvImportBtnText">📊 Import Transactions</span>
-        </button>
-        <div style="font-size:9.5px;color:var(--muted);margin-top:5px;line-height:1.5;">
-          Needs columns: <code style="font-size:9px;background:var(--surface3);padding:1px 3px;border-radius:3px;">Date</code>
-          <code style="font-size:9px;background:var(--surface3);padding:1px 3px;border-radius:3px;">Description</code>
-          <code style="font-size:9px;background:var(--surface3);padding:1px 3px;border-radius:3px;">Debit/Credit</code> or
-          <code style="font-size:9px;background:var(--surface3);padding:1px 3px;border-radius:3px;">Amount</code>
         </div>
       </div>
 
@@ -597,15 +524,12 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="page-header">
     <h1>Approve Transactions</h1>
     <span class="sub" id="approveSub"></span>
-    <div class="right"><button class="btn-sec" onclick="goPage('parse')" style="margin-right:8px;">← Back</button><button class="btn" id="approveBtn">Approve All &amp; Continue →</button></div>
+    <div class="right"><button class="btn" id="approveBtn">Approve All &amp; Continue →</button></div>
   </div>
   <div class="wf-content">
     <div class="panel">
       <h2>Approval Screen</h2>
       <div class="psub">Review every extracted transaction. Edit anything that looks wrong before locking it in.</div>
-      <div style="display:flex;gap:8px;margin-bottom:10px;">
-        <input type="text" id="approveSearch" placeholder="Search date, description or amount…" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);color:var(--text);outline:none;" oninput="filterApproveTable()"/>
-      </div>
       <div class="wf-table-scroll">
         <table class="wf-table">
           <thead><tr><th>Date</th><th>Description</th><th>Page</th><th style="text-align:right">Amount</th></tr></thead>
@@ -624,7 +548,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <h1>Category Allocation</h1>
     <span class="sub" id="catProgress"></span>
     <div class="right">
-      <button class="btn-sec" onclick="goPage('approve')" style="margin-right:8px;">← Back</button>
       <button class="btn-sec" id="toggleGroupView">Switch to Grouped View</button>
       <button class="btn" id="catContinueBtn">Continue to GST Review →</button>
     </div>
@@ -635,9 +558,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
       <div class="psub">Similar transactions are grouped semantically. Anything not recognized falls back to description matching.</div>
       <div id="groupedView" style="display:none"></div>
       <div id="flatView">
-        <div style="display:flex;gap:8px;margin-bottom:10px;">
-          <input type="text" id="categorizeSearch" placeholder="Search date, description or amount…" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);color:var(--text);outline:none;" oninput="filterCategorizeTable()"/>
-        </div>
         <div class="wf-table-scroll">
           <table class="wf-table">
             <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Category</th></tr></thead>
@@ -656,7 +576,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="page-header">
     <h1>GST Review</h1>
     <span class="sub">ATO BAS summary · Worksheet method · Editable amounts</span>
-    <div class="right"><button class="btn-sec" onclick="goPage('categorize')" style="margin-right:8px;">← Back</button><button class="btn-sec" id="gstExportBtn" style="margin-right:8px;">⬇ Export Excel</button><button class="btn" id="gstContinueBtn">Approve GST &amp; Generate P&amp;L →</button></div>
+    <div class="right"><button class="btn" id="gstContinueBtn">Approve GST &amp; Generate P&amp;L →</button></div>
   </div>
   <div class="wf-content">
     <div class="panel">
@@ -678,9 +598,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="panel">
       <h2 style="margin-bottom:8px;">Transaction Detail</h2>
       <div class="psub">Edit any amount — GST and net recalculate automatically (GST = Amount ÷ 11)</div>
-      <div style="display:flex;gap:8px;margin-bottom:10px;">
-        <input type="text" id="gstSearch" placeholder="Search date, description or amount…" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:12px;background:var(--surface);color:var(--text);outline:none;" oninput="filterGstTable()"/>
-      </div>
       <div class="wf-table-scroll">
         <table class="wf-table">
           <thead><tr><th>Description</th><th>Category</th><th>GST?</th><th style="text-align:right">Amount (inc.GST)</th><th style="text-align:right">GST (÷11)</th><th style="text-align:right">Net (ex.GST)</th></tr></thead>
@@ -698,7 +615,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="page-header">
     <h1>Profit &amp; Loss</h1>
     <span class="sub">Generated from categorized, GST-exclusive (net) amounts</span>
-    <div class="right"><button class="btn-sec" onclick="goPage('gst')" style="margin-right:8px;">← Back</button><button class="btn-sec" id="pnlExportBtn">⬇ Export Excel</button></div>
   </div>
   <div class="wf-content">
     <div class="panel" id="pnlContent"></div>
@@ -755,232 +671,63 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════
-     PAGE: AI VISION — NVIDIA Nemotron + OCR Extractor
+     PAGE: OCR EXTRACTOR TOOL
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="page" id="page-ocr">
-  <div class="page-header" style="flex-shrink:0;">
-    <h1>🤖 AI Vision</h1>
-    <span class="sub">NVIDIA Nemotron multimodal AI · OCR text extraction</span>
+  <div class="page-header">
+    <h1>🔍 OCR Extractor</h1>
+    <span class="sub">Pure image-to-text extraction · No bank logic · No transaction parsing</span>
   </div>
-
-  <!-- Tabs -->
-  <div class="vision-tabs">
-    <div class="vision-tab active" data-vtab="nvidia">✦ NVIDIA AI Playground</div>
-    <div class="vision-tab" data-vtab="json">📋 JSON Import</div>
-    <div class="vision-tab" data-vtab="ocr">🔍 OCR Extractor</div>
-  </div>
-
-  <!-- ── TAB 1: NVIDIA AI Playground ───────────────────────────────────── -->
-  <div class="vision-tab-panel active" id="vtab-nvidia">
-    <div class="nvidia-playground">
-
-      <!-- Sidebar: image upload + model info + clear -->
-      <div class="nvidia-sidebar">
-        <div class="sb-section">
-          <div class="sb-label">Attach Image</div>
-          <div class="drop-zone" id="nvDropZone" style="padding:14px 10px;">
-            <div class="drop-icon" style="font-size:24px;">🖼</div>
-            <div class="drop-hint" style="font-size:11px;"><strong>Click or drop</strong> an image here</div>
-            <div style="font-size:9px;color:var(--muted);margin-top:2px;">PNG · JPG · WEBP · GIF</div>
-          </div>
-          <input type="file" id="nvFileInput" accept="image/*" style="display:none"/>
-          <div id="nvFilePreviewWrap" style="display:none;margin-top:8px;">
-            <div style="position:relative;display:inline-block;width:100%;">
-              <img id="nvFileThumbnail" src="" alt="" style="width:100%;max-height:130px;object-fit:cover;border-radius:8px;border:1px solid var(--border);"/>
-              <button id="nvRemoveFile" style="position:absolute;top:5px;right:5px;background:rgba(0,0,0,.6);border:none;border-radius:50%;width:22px;height:22px;cursor:pointer;color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;">✕</button>
-            </div>
-            <div id="nvFileName" style="font-size:10px;color:var(--text-dim);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
-          </div>
+  <div class="ocr-layout">
+    <div class="ocr-upload-panel">
+      <div class="sb-section">
+        <div class="sb-label">Upload Image or PDF</div>
+        <div class="drop-zone" id="ocrDropZone">
+          <div class="drop-icon">🖼</div>
+          <div class="drop-hint"><strong>Click or drop</strong> an image or PDF here</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;">PNG · JPG · TIFF · PDF</div>
         </div>
-
-        <div class="sb-section">
-          <div class="sb-label">Model</div>
-          <div style="font-size:10.5px;color:var(--text-dim);line-height:1.6;">
-            <span style="color:var(--accent);font-weight:700;">Nemotron-3-Nano-Omni</span><br>
-            30B params · 3B active · Multimodal<br>
-            <span style="color:var(--muted);">via integrate.api.nvidia.com</span>
-          </div>
-        </div>
-
-        <div class="sb-section">
-          <div class="sb-label">Quick Prompts</div>
-          <div style="display:flex;flex-direction:column;gap:5px;">
-            <button class="btn-sec nv-quick" data-p="Extract all text from this image and return it as structured data." style="text-align:left;font-size:10.5px;padding:5px 8px;">📋 Extract structured text</button>
-            <button class="btn-sec nv-quick" data-p="This is a bank statement. Extract all transactions and return them as a JSON array with fields: date, description, debit, credit, balance." style="text-align:left;font-size:10.5px;padding:5px 8px;">🏦 Parse bank statement</button>
-            <button class="btn-sec nv-quick" data-p="Extract all line items, amounts, dates, and totals from this invoice or receipt." style="text-align:left;font-size:10.5px;padding:5px 8px;">🧾 Parse invoice/receipt</button>
-            <button class="btn-sec nv-quick" data-p="Describe what you see in this image in detail." style="text-align:left;font-size:10.5px;padding:5px 8px;">🔎 Describe image</button>
-          </div>
-        </div>
-
-        <div style="margin-top:auto;padding:12px 14px;border-top:1px solid var(--border);">
-          <button class="btn-sec" id="nvClearBtn" style="width:100%;font-size:11px;">🗑 Clear conversation</button>
+        <input type="file" id="ocrFileInput" accept=".png,.jpg,.jpeg,.tiff,.tif,.bmp,.pdf" style="display:none"/>
+        <div class="file-chosen" id="ocrFileChosen" style="margin-top:8px;">
+          <span style="font-size:17px;" id="ocrFileIcon">🖼</span>
+          <span class="file-name" id="ocrFileName"></span>
+          <button class="file-remove" id="ocrRemoveFile">✕</button>
         </div>
       </div>
-
-      <!-- Main chat area -->
-      <div class="nvidia-chat-area">
-        <!-- Messages -->
-        <div class="nvidia-messages" id="nvMessages">
-          <div class="nvidia-empty-state" id="nvEmptyState">
-            <div class="big-icon">✦</div>
-            <p>NVIDIA Nemotron-3-Nano-Omni<br>Attach an image and ask anything — bank statements, invoices, documents, or any image.</p>
-          </div>
+      <div class="sb-section">
+        <button class="btn parse-btn" id="ocrRunBtn" disabled>
+          <div class="spinner" id="ocrSpinner"></div>
+          <span id="ocrBtnText">Extract Text</span>
+        </button>
+      </div>
+      <div class="sb-section" id="ocrStatsSection" style="display:none;">
+        <div class="sb-label">Extraction Stats</div>
+        <div class="stat-grid">
+          <div class="tile"><div class="tv" id="ocrWordCount">—</div><div class="tl">Words</div></div>
+          <div class="tile"><div class="tv" id="ocrLineCount">—</div><div class="tl">Lines</div></div>
         </div>
-
-        <!-- Input bar -->
-        <div class="nvidia-input-bar">
-          <div id="nvImgAttachBar" style="display:none;">
-            <div class="nvidia-img-attach">
-              <img id="nvImgAttachThumb" src="" alt="" />
-              <span id="nvImgAttachName" style="font-size:10.5px;color:var(--text-dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
-              <span class="remove-img" id="nvRemoveAttach" title="Remove image">✕</span>
-            </div>
-          </div>
-          <div class="nvidia-input-row">
-            <button class="nvidia-attach-btn" id="nvAttachBtn" title="Attach image">🖼</button>
-            <input type="file" id="nvInlineFileInput" accept="image/*" style="display:none"/>
-            <textarea id="nvInput" rows="1" placeholder="Ask anything… or attach an image first"></textarea>
-            <button class="nvidia-send-btn" id="nvSendBtn" title="Send">
-              <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-            </button>
-          </div>
+      </div>
+      <div class="sb-section">
+        <div class="sb-label">Tesseract Status</div>
+        <div id="ocrStatusBox" style="font-size:10.5px;line-height:1.6;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);">
+          <div style="color:var(--muted);">Checking…</div>
+        </div>
+        <div style="margin-top:10px;font-size:10px;color:var(--muted);line-height:1.6;">
+          pdfplumber handles PDFs with a text layer directly (no Tesseract needed). Tesseract is only required for scanned images or image-only PDFs.
         </div>
       </div>
     </div>
-  </div>
-
-  <!-- ── TAB 2: JSON Import ─────────────────────────────────────────────── -->
-  <div class="vision-tab-panel" id="vtab-json">
-    <div style="display:flex;flex:1;min-height:0;gap:0;">
-
-      <!-- Left: paste + controls -->
-      <div style="width:340px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;">
-
-        <div class="sb-section">
-          <div class="sb-label">How to use</div>
-          <div style="font-size:10.5px;color:var(--text-dim);line-height:1.7;">
-            Paste a JSON array of transactions below. Each object needs at minimum:<br>
-            <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Date</code>
-            <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Description</code>
-            <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Debit</code> or
-            <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Credit</code>
-            or <code style="font-size:10px;background:var(--surface2);padding:1px 4px;border-radius:3px;">Amount</code><br><br>
-            Start pasting from the <strong>[ opening bracket</strong> of the transactions array — account metadata is ignored automatically.
-          </div>
-        </div>
-
-        <div class="sb-section">
-          <div class="sb-label">Statement Name <span style="color:var(--muted);font-weight:400;">(optional)</span></div>
-          <input type="text" id="jsonStmtName" class="form-input" placeholder="e.g. Westpac — 16 Nirvana Jul 2025" style="font-size:11px;"/>
-        </div>
-
-        <div class="sb-section" style="flex:1;display:flex;flex-direction:column;min-height:0;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <div class="sb-label" style="margin:0;">Paste JSON</div>
-            <button class="btn-sec" id="jsonClearBtn" style="font-size:10px;padding:3px 8px;">Clear</button>
-          </div>
-          <textarea id="jsonPasteArea" placeholder='Paste JSON array here…
-[
-  {
-    "Date": "01 Jul 2025",
-    "Description": "PAYMENT BY AUTHORITY ...",
-    "Debit": "-$269.50",
-    "Credit": ""
-  },
-  ...
-]' style="flex:1;min-height:200px;width:100%;border:1px solid var(--border2);border-radius:8px;padding:10px;font-family:var(--mono);font-size:10.5px;line-height:1.6;color:var(--text);background:var(--surface2);resize:none;outline:none;"></textarea>
-        </div>
-
-        <div class="sb-section">
-          <div id="jsonErrorBox" style="display:none;background:var(--red-lo);border:1px solid rgba(220,38,38,.25);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--red);margin-bottom:8px;"></div>
-          <div id="jsonPreviewStats" style="display:none;background:var(--green-lo);border:1px solid rgba(21,128,61,.2);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--green);margin-bottom:8px;"></div>
-          <button class="btn parse-btn" id="jsonConvertBtn" style="width:100%;">
-            <span id="jsonConvertText">📋 Convert to Table →</span>
-          </button>
-        </div>
-
-      </div>
-
-      <!-- Right: live preview -->
-      <div style="flex:1;display:flex;flex-direction:column;background:var(--surface2);overflow:hidden;">
-        <div style="padding:14px 16px 10px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:10px;">
-          <span style="font-size:12px;font-weight:700;color:var(--text-dim);">Preview</span>
-          <span id="jsonPreviewCount" style="font-size:10.5px;color:var(--muted);"></span>
-        </div>
-        <div style="flex:1;overflow-y:auto;padding:12px 14px;">
-          <div id="jsonPreviewEmpty" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-size:12px;">Paste JSON on the left to preview transactions</div>
-          <table id="jsonPreviewTable" style="display:none;width:100%;border-collapse:collapse;font-size:11px;">
-            <thead>
-              <tr style="background:var(--surface3);">
-                <th style="padding:6px 10px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;">#</th>
-                <th style="padding:6px 10px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;">Date</th>
-                <th style="padding:6px 10px;text-align:left;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Description</th>
-                <th style="padding:6px 10px;text-align:right;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;">Amount</th>
-                <th style="padding:6px 10px;text-align:center;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.5px;">Type</th>
-              </tr>
-            </thead>
-            <tbody id="jsonPreviewBody"></tbody>
-          </table>
+    <div class="ocr-result-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-shrink:0;">
+        <span style="font-size:11px;font-weight:700;color:var(--text-dim);">Extracted Text</span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-sec" id="ocrCopyBtn" style="display:none;">Copy All</button>
+          <button class="btn-sec" id="ocrDownloadBtn" style="display:none;">⬇ Download .txt</button>
         </div>
       </div>
-
+      <textarea id="ocrTextResult" placeholder="Extracted text will appear here after running OCR…" readonly></textarea>
     </div>
   </div>
-
-  <!-- ── TAB 3: OCR Extractor (original) ───────────────────────────────── -->
-  <div class="vision-tab-panel" id="vtab-ocr">
-    <div class="ocr-layout">
-      <div class="ocr-upload-panel">
-        <div class="sb-section">
-          <div class="sb-label">Upload Image or PDF</div>
-          <div class="drop-zone" id="ocrDropZone">
-            <div class="drop-icon">🖼</div>
-            <div class="drop-hint"><strong>Click or drop</strong> an image or PDF here</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:3px;">PNG · JPG · TIFF · PDF</div>
-          </div>
-          <input type="file" id="ocrFileInput" accept=".png,.jpg,.jpeg,.tiff,.tif,.bmp,.pdf" style="display:none"/>
-          <div class="file-chosen" id="ocrFileChosen" style="margin-top:8px;">
-            <span style="font-size:17px;" id="ocrFileIcon">🖼</span>
-            <span class="file-name" id="ocrFileName"></span>
-            <button class="file-remove" id="ocrRemoveFile">✕</button>
-          </div>
-        </div>
-        <div class="sb-section">
-          <button class="btn parse-btn" id="ocrRunBtn" disabled>
-            <div class="spinner" id="ocrSpinner"></div>
-            <span id="ocrBtnText">Extract Text</span>
-          </button>
-        </div>
-        <div class="sb-section" id="ocrStatsSection" style="display:none;">
-          <div class="sb-label">Extraction Stats</div>
-          <div class="stat-grid">
-            <div class="tile"><div class="tv" id="ocrWordCount">—</div><div class="tl">Words</div></div>
-            <div class="tile"><div class="tv" id="ocrLineCount">—</div><div class="tl">Lines</div></div>
-          </div>
-        </div>
-        <div class="sb-section">
-          <div class="sb-label">Tesseract Status</div>
-          <div id="ocrStatusBox" style="font-size:10.5px;line-height:1.6;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);">
-            <div style="color:var(--muted);">Checking…</div>
-          </div>
-          <div style="margin-top:10px;font-size:10px;color:var(--muted);line-height:1.6;">
-            pdfplumber handles PDFs with a text layer directly (no Tesseract needed). Tesseract is only required for scanned images or image-only PDFs.
-          </div>
-        </div>
-      </div>
-      <div class="ocr-result-panel">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-shrink:0;">
-          <span style="font-size:11px;font-weight:700;color:var(--text-dim);">Extracted Text</span>
-          <div style="display:flex;gap:6px;">
-            <button class="btn-sec" id="ocrCopyBtn" style="display:none;">Copy All</button>
-            <button class="btn-sec" id="ocrDownloadBtn" style="display:none;">⬇ Download .txt</button>
-          </div>
-        </div>
-        <textarea id="ocrTextResult" placeholder="Extracted text will appear here after running OCR…" readonly></textarea>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 </div><!-- /.app-body -->
@@ -1042,6 +789,21 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="modal-footer">
       <button class="btn-sec" id="consolidateCancel">Cancel</button>
       <button class="btn" id="consolidateRun">Generate Consolidated Report →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Split Window Modal: pick what to load in pane 2 -->
+<div class="modal-overlay" id="splitModal">
+  <div class="modal">
+    <h2>⊞ Open Split Window</h2>
+    <p>Choose a saved statement from any client/quarter to open side-by-side with the current view.</p>
+    <div class="form-row"><label>Client</label><select id="splitClientSel" class="form-input"><option value="">Select client…</option></select></div>
+    <div class="form-row"><label>Quarter</label><select id="splitQuarterSel" class="form-input" disabled><option value="">Select client first…</option></select></div>
+    <div class="form-row"><label>Statement</label><select id="splitStmtSel" class="form-input" disabled><option value="">Select quarter first…</option></select></div>
+    <div class="modal-footer">
+      <button class="btn-sec" id="splitModalCancel">Cancel</button>
+      <button class="btn" id="splitModalOpen">Open Side by Side →</button>
     </div>
   </div>
 </div>
@@ -1122,7 +884,7 @@ function goPage(name) {
   if (name === "aicategorize") loadAiCategorizePage();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
-  if (item.id === "chatToggleNav") return;
+  if (item.id === "chatToggleNav" || item.id === "splitWindowNav") return;
   item.addEventListener("click", () => {
     if (item.classList.contains("disabled")) return;
     goPage(item.dataset.page);
@@ -1268,7 +1030,7 @@ async function showAnnualConsolIfReady() {
   try {
     const qs = await fetch(`/api/quarters?client_id=${activeClientId}`).then(r => r.json());
     document.getElementById('annualConsolSection').style.display = qs.length >= 2 ? 'block' : 'none';
-  } catch(_e) {}
+  } catch {}
 }
 
 async function resumeStatement(id) {
@@ -1592,8 +1354,8 @@ async function sendToWorkflow(nameOverride) {
     };
     const r = await fetch("/api/statements", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
     const d = await r.json();
-    statementId = d.statement_id;
-    activeStatementId = d.statement_id;
+    statementId = d.id;
+    activeStatementId = d.id;
     updateSidebarCtx();
     unlockNav('approve','categorize','gst','pnl','aicategorize');
     markDone('parse');
@@ -1621,7 +1383,7 @@ async function loadSavedStatements() {
         <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(s.statement_name || s.filename || 'Statement #'+s.id)}</span>
         <button class="btn-sec" onclick="resumeStatement(${s.id})" style="font-size:10px;padding:3px 8px;">Load</button>
       </div>`).join('');
-  } catch(_e) {}
+  } catch {}
 }
 
 // Load saved stmts when parse page opens
@@ -1757,42 +1519,76 @@ function loadPdfPage(page, highlight, highlights) {
 })();
 
 // ══════════════════════════════════════════════════════════════════════════
+// SPLIT WINDOW
+// ══════════════════════════════════════════════════════════════════════════
+document.getElementById('splitWindowNav').addEventListener('click', openSplitModal);
+document.getElementById('splitParseBtn').addEventListener('click', openSplitModal);
+
+async function openSplitModal() {
+  document.getElementById('splitModal').classList.add('open');
+  const clients = await fetch('/api/clients').then(r => r.json()).catch(() => []);
+  const sel = document.getElementById('splitClientSel');
+  sel.innerHTML = '<option value="">Select client…</option>' + clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  document.getElementById('splitQuarterSel').innerHTML = '<option value="">Select client first…</option>';
+  document.getElementById('splitStmtSel').innerHTML = '<option value="">Select quarter first…</option>';
+  document.getElementById('splitQuarterSel').disabled = true;
+  document.getElementById('splitStmtSel').disabled = true;
+}
+
+document.getElementById('splitClientSel').addEventListener('change', async function() {
+  const id = this.value;
+  if (!id) return;
+  const qs = await fetch(`/api/quarters?client_id=${id}`).then(r => r.json()).catch(() => []);
+  const sel = document.getElementById('splitQuarterSel');
+  sel.innerHTML = '<option value="">Select quarter…</option>' + qs.map(q => `<option value="${q.id}">${esc(q.label)}</option>`).join('');
+  sel.disabled = false;
+  document.getElementById('splitStmtSel').innerHTML = '<option value="">Select quarter first…</option>';
+  document.getElementById('splitStmtSel').disabled = true;
+});
+
+document.getElementById('splitQuarterSel').addEventListener('change', async function() {
+  const id = this.value;
+  if (!id) return;
+  const stmts = await fetch(`/api/quarters/${id}/statements`).then(r => r.json()).catch(() => []);
+  const sel = document.getElementById('splitStmtSel');
+  sel.innerHTML = '<option value="">Select statement…</option>' + stmts.map(s => `<option value="${s.id}">${esc(s.statement_name || s.filename || 'Stmt #'+s.id)}</option>`).join('');
+  sel.disabled = false;
+});
+
+document.getElementById('splitModalCancel').addEventListener('click', () => document.getElementById('splitModal').classList.remove('open'));
+document.getElementById('splitModalOpen').addEventListener('click', () => {
+  const stmtId = document.getElementById('splitStmtSel').value;
+  if (!stmtId) return;
+  document.getElementById('splitModal').classList.remove('open');
+  openSplitWindow(parseInt(stmtId));
+});
+
+function openSplitWindow(stmtId) {
+  window.open('/split-view?stmt_id=' + stmtId, 'bas_split_' + stmtId, 'width=960,height=720,resizable=yes,scrollbars=yes');
+}
+// Split window served via /split-view → split.html
+
+// ══════════════════════════════════════════════════════════════════════════
 // WORKFLOW PAGES (Approve / Categorize / GST / PnL)
+// These are unchanged from original — kept compact
 // ══════════════════════════════════════════════════════════════════════════
 
 // ── APPROVE ───────────────────────────────────────────────────────────────
-let allApproveRows = [];
 async function loadApprove() {
   if (!statementId) return;
   document.getElementById("approveSub").textContent = `Statement #${statementId}`;
   const r = await fetch(`/api/statements/${statementId}/transactions`);
   const d = await r.json();
   wfTransactions = d;
-  allApproveRows = d;
-  document.getElementById('approveSearch').value = '';
-  renderApproveRows(d);
-}
-
-function renderApproveRows(rows) {
-  document.getElementById("approveBody").innerHTML = rows.map(t => `
+  document.getElementById("approveBody").innerHTML = d.map(t => `
     <tr>
-      <td><input type="text" value="${esc(t.date||'')}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);width:96px;" onchange="patchTxn(${t.id},'date',this.value)"/></td>
+      <td><input type="date" value="${esc(t.date||'')}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);" onchange="patchTxn(${t.id},'date',this.value)"/></td>
       <td><input type="text" value="${esc(t.description||'')}" style="border:none;background:transparent;font-size:11.5px;color:var(--text);width:100%;" onchange="patchTxn(${t.id},'description',this.value)"/></td>
       <td style="color:var(--muted);font-size:11px;">${t.source_page||''}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11.5px;" class="${t.amount>0?'td-amt pos':'td-amt neg'}">
         <input type="number" value="${t.amount}" step="0.01" style="border:none;background:transparent;font-family:var(--mono);font-size:11.5px;color:inherit;text-align:right;width:100px;" onchange="patchTxn(${t.id},'amount',parseFloat(this.value))"/>
       </td>
     </tr>`).join("");
-}
-
-function filterApproveTable() {
-  const q = document.getElementById('approveSearch').value.toLowerCase();
-  if (!q) { renderApproveRows(allApproveRows); return; }
-  renderApproveRows(allApproveRows.filter(t =>
-    (t.date||'').toLowerCase().includes(q) ||
-    (t.description||'').toLowerCase().includes(q) ||
-    String(t.amount).includes(q)
-  ));
 }
 
 async function patchTxn(id, field, value) {
@@ -1808,7 +1604,6 @@ document.getElementById("approveBtn").addEventListener("click", async () => {
 });
 
 // ── CATEGORIZE ────────────────────────────────────────────────────────────
-let allCatRows = [], allCatOpts = '';
 async function loadCategorize() {
   if (!statementId) return;
   const [txnR, catR] = await Promise.all([
@@ -1816,164 +1611,66 @@ async function loadCategorize() {
     fetch("/api/categories").then(r=>r.json())
   ]);
   wfTransactions = txnR; categories = catR;
-  allCatRows = txnR;
-  allCatOpts = '<option value="">Uncategorized</option>' + catR.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const done = txnR.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${txnR.length} categorized`;
-  document.getElementById('categorizeSearch').value = '';
 
   if (groupedMode) {
     loadGroupedView();
   } else {
-    renderCategorizeRows(txnR);
+    const catOpts = '<option value="">Uncategorized</option>' + catR.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    document.getElementById("categorizeBody").innerHTML = txnR.map(t => `
+      <tr>
+        <td class="td-date">${esc(t.date)}</td>
+        <td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td>
+        <td class="td-amt ${t.amount>0?'pos':'neg'}">${fmt(t.amount)}</td>
+        <td><select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);width:100%;" onchange="categorizeTxn(${t.id}, this.value)">
+          ${catOpts.replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`)}
+        </select></td>
+      </tr>`).join('');
   }
 }
 
-function renderCategorizeRows(rows) {
-  document.getElementById("categorizeBody").innerHTML = rows.map(t => `
-    <tr>
-      <td class="td-date">${esc(t.date)}</td>
-      <td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td>
-      <td class="td-amt ${t.amount>0?'pos':'neg'}">${fmt(t.amount)}</td>
-      <td><select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);width:100%;" onchange="categorizeTxn(${t.id}, this.value)">
-        ${allCatOpts.replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`)}
-      </select></td>
-    </tr>`).join('');
-}
-
-function filterCategorizeTable() {
-  const q = document.getElementById('categorizeSearch').value.toLowerCase();
-  if (!q) { renderCategorizeRows(allCatRows); return; }
-  renderCategorizeRows(allCatRows.filter(t =>
-    (t.date||'').toLowerCase().includes(q) ||
-    (t.description||'').toLowerCase().includes(q) ||
-    String(t.amount).includes(q)
-  ));
-}
-
 async function categorizeTxn(id, catId) {
-  await fetch(`/api/statements/${statementId}/categorize`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({transaction_ids: [id], category_id: catId ? parseInt(catId) : null}) });
-  const t = wfTransactions.find(x => x.id === id);
+  await fetch(`/api/statements/${statementId}/categorize`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({transaction_id: id, category_id: catId ? parseInt(catId) : null})
+  });
+  // Keep wfTransactions in sync so progress count and grouped view stay accurate
+  const t = wfTransactions.find(t => t.id === id);
   if (t) t.category_id = catId ? parseInt(catId) : null;
-  const done = wfTransactions.filter(t => t.category_id || t.id === id).length;
+  const done = wfTransactions.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
+  // If grouped view is active, reload it so it reflects the new categorization
+  if (groupedMode) loadGroupedView();
 }
 
 async function loadGroupedView() {
   const r = await fetch(`/api/statements/${statementId}/groups`).then(r=>r.json());
+  const catOpts = '<option value="">Uncategorized</option>' + categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const gv = document.getElementById("groupedView");
-
-  function renderGroupSection(groups, sectionLabel, sectionColor) {
-    if (!groups || !groups.length) return '';
-    return `
-      <div style="margin-bottom:6px;padding:6px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:${sectionColor};">
-        ${sectionLabel} (${groups.length} group${groups.length>1?'s':''})
+  gv.innerHTML = r.groups ? r.groups.map(g => `
+    <div style="margin-bottom:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+      <div style="padding:10px 14px; background:var(--surface2); display:flex; align-items:center; gap:10px;">
+        <span style="flex:1; font-size:12px; font-weight:700;">${esc(g.group_key)}</span>
+        <span style="font-size:10px; color:var(--muted);">${g.count} transactions · ${fmt(g.total)}</span>
+        <select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;" onchange="categorizeGroup('${esc(g.group_key)}', this.value)">
+          ${catOpts}
+        </select>
       </div>
-      ${groups.map((g, gi) => {
-        const domId = g.dominant_category_id;
-        const txnIds = (g.transactions || []).map(t => t.id);
-        const groupUid = `grp-${sectionLabel.replace(/\W/g,'')}-${gi}`;
-        const grpSelOpts = '<option value="">Uncategorized</option>' +
-          categories.map(c => `<option value="${c.id}"${c.id===domId?' selected':''}}>${esc(c.name)}</option>`).join('');
-        const txnRows = (g.transactions || []).map(t => {
-          const txnCatId = t.category_id || '';
-          const txnSelOpts = '<option value="">—</option>' +
-            categories.map(c => `<option value="${c.id}"${c.id==txnCatId?' selected':''}}>${esc(c.name)}</option>`).join('');
-          return `
-            <tr style="background:var(--surface);border-bottom:1px solid var(--border);">
-              <td style="padding:5px 10px;font-family:var(--mono);font-size:10.5px;color:var(--text-dim);white-space:nowrap;width:90px;">${esc(t.date||'—')}</td>
-              <td style="padding:5px 10px;font-size:10.5px;color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.description||'')}}">${esc(t.description||'')}</td>
-              <td style="padding:5px 10px;font-family:var(--mono);font-size:10.5px;text-align:right;white-space:nowrap;color:${t.amount>=0?'var(--green)':'var(--red)'};">${fmt(t.amount)}</td>
-              <td style="padding:5px 10px;width:160px;">
-                <select data-txn-id="${t.id}"
-                  style="width:100%;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:10.5px;background:var(--surface2);color:var(--text);"
-                  onchange="categorizeSingleInGroup(${t.id}, this.value, this)">
-                  ${txnSelOpts}
-                </select>
-              </td>
-            </tr>`;
-        }).join('');
-        return `
-          <div style="margin-bottom:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-            <div style="padding:10px 14px;background:var(--surface2);display:flex;align-items:center;gap:10px;">
-              <button onclick="toggleGroup('${groupUid}')" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:13px;padding:0 4px;line-height:1;">
-                <span id="${groupUid}-icon">▶</span>
-              </button>
-              <span style="flex:1;font-size:12px;font-weight:700;">${esc(g.group_key)}</span>
-              <span style="font-size:10px;color:var(--muted);">${g.count} txns · ${fmt(g.total)}</span>
-              <span style="font-size:10px;color:var(--muted);margin-right:2px;">Bulk:</span>
-              <select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);"
-                onchange="categorizeGroup([${txnIds.join(',')}], this.value, this, '${groupUid}')">
-                ${grpSelOpts}
-              </select>
-            </div>
-            <div id="${groupUid}-rows" style="display:none;">
-              <table style="width:100%;border-collapse:collapse;">
-                <thead>
-                  <tr style="background:var(--surface3);">
-                    <th style="padding:4px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);text-align:left;">Date</th>
-                    <th style="padding:4px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);text-align:left;">Description</th>
-                    <th style="padding:4px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);text-align:right;">Amount</th>
-                    <th style="padding:4px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);text-align:left;">Category</th>
-                  </tr>
-                </thead>
-                <tbody>${txnRows}</tbody>
-              </table>
-            </div>
-          </div>`;
-      }).join('')}`;
-  }
-
-  const debitHtml  = renderGroupSection(r.debit,  '💸 Money Out (Debits)',  'var(--red)');
-  const creditHtml = renderGroupSection(r.credit, '💰 Money In (Credits)', 'var(--green)');
-  gv.innerHTML = (debitHtml || creditHtml)
-    ? debitHtml + creditHtml
-    : '<div style="color:var(--muted);padding:20px;text-align:center;">No groups available.</div>';
+      <div style="padding:8px 14px; font-size:10.5px; color:var(--text-dim);">${g.samples.map(s=>esc(s)).join(' · ')}</div>
+    </div>`).join('') : '<div style="color:var(--muted);padding:20px;text-align:center;">No groups available.</div>';
 }
 
-function toggleGroup(uid) {
-  const rows = document.getElementById(uid + '-rows');
-  const icon = document.getElementById(uid + '-icon');
-  if (!rows) return;
-  const open = rows.style.display === 'none';
-  rows.style.display = open ? '' : 'none';
-  if (icon) icon.textContent = open ? '▼' : '▶';
-}
-
-async function categorizeSingleInGroup(txnId, catId, selectEl) {
-  const catIdInt = catId ? parseInt(catId) : null;
-  await fetch(`/api/statements/${statementId}/categorize`, {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ transaction_ids: [txnId], category_id: catIdInt })
+async function categorizeGroup(groupKey, catId) {
+  await fetch(`/api/statements/${statementId}/categorize/group`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({group_key: groupKey, category_id: catId ? parseInt(catId) : null})
   });
-  const t = wfTransactions.find(x => x.id === txnId);
-  if (t) t.category_id = catIdInt;
-  selectEl.style.borderColor = 'var(--green)';
-  setTimeout(() => selectEl.style.borderColor = 'var(--border)', 1200);
-  const done = wfTransactions.filter(t => t.category_id).length;
-  document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
-}
-
-async function categorizeGroup(txnIds, catId, selectEl, groupUid) {
-  if (!catId || !txnIds.length) return;
-  const catIdInt = parseInt(catId);
-  await fetch(`/api/statements/${statementId}/categorize`, {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ transaction_ids: txnIds, category_id: catIdInt })
-  });
-  txnIds.forEach(id => {
-    const t = wfTransactions.find(x => x.id === id);
-    if (t) t.category_id = catIdInt;
-  });
-  // Sync all individual dropdowns in this group
-  if (groupUid) {
-    const rowsDiv = document.getElementById(groupUid + '-rows');
-    if (rowsDiv) rowsDiv.querySelectorAll('select[data-txn-id]').forEach(sel => {
-      sel.value = catId;
-      sel.style.borderColor = 'var(--green)';
-      setTimeout(() => sel.style.borderColor = 'var(--border)', 1200);
-    });
-  }
+  // Reload wfTransactions so flat view and progress stay in sync
+  const txnR = await fetch(`/api/statements/${statementId}/transactions`).then(r=>r.json());
+  wfTransactions = txnR;
   const done = wfTransactions.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
 }
@@ -1992,7 +1689,6 @@ document.getElementById("catContinueBtn").addEventListener("click", async () => 
 });
 
 // ── GST ───────────────────────────────────────────────────────────────────
-let allGstRows = [];
 async function loadGst() {
   if (!statementId) return;
   const d = await fetch(`/api/statements/${statementId}/gst`).then(r=>r.json());
@@ -2003,43 +1699,25 @@ async function loadGst() {
     {key:'G11', label:'G11 – Non-capital purchases'}, {key:'1A', label:'1A – GST on sales'},
     {key:'1B', label:'1B – GST on purchases'}, {key:'net', label:'Net GST Payable'}
   ];
-  const bas = d.summary?.bas || {};
   document.getElementById('gstBasGrid').innerHTML = basFields.map(f => `
-    <div class="gst-tile"><div class="gst-tile gk">${esc(f.key)}</div><div class="gv">${fmt(bas[f.key] || 0)}</div><div class="gl">${esc(f.label.split('–')[1]||f.label)}</div></div>`).join('');
+    <div class="gst-tile"><div class="gst-tile gk">${esc(f.key)}</div><div class="gv">${fmt(d.bas?.[f.key] || 0)}</div><div class="gl">${esc(f.label.split('–')[1]||f.label)}</div></div>`).join('');
 
-  const net = (bas['1A']||0) - (bas['1B']||0);
+  const net = (d.bas?.['1A']||0) - (d.bas?.['1B']||0);
   document.getElementById('gstNetPanel').style.background = net >= 0 ? 'var(--red-lo)' : 'var(--green-lo)';
   document.getElementById('gstNetPanel').innerHTML = `<span style="font-size:13px;font-weight:700;">Net GST ${net>=0?'Payable':'Refundable'}</span><span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${net>=0?'var(--red)':'var(--green)'};">${fmt(Math.abs(net))}</span>`;
 
-  // Category table — API returns d.summary.by_category with keys: category, pnl_group, bas_label, gross, gst, net, count
-  document.getElementById('gstCategoryBody').innerHTML = (d.summary?.by_category||[]).map(c => `
-    <tr><td>${esc(c.category)}</td><td>${esc(c.pnl_group)}</td><td><span class="badge cr">${esc(c.bas_label||'—')}</span></td>
+  // Category table
+  document.getElementById('gstCategoryBody').innerHTML = (d.by_category||[]).map(c => `
+    <tr><td>${esc(c.category_name)}</td><td>${esc(c.pnl_group)}</td><td><span class="badge cr">${esc(c.bas_label||'—')}</span></td>
     <td style="text-align:right">${fmt(c.gross)}</td><td style="text-align:right">${fmt(c.gst)}</td><td style="text-align:right">${fmt(c.net)}</td><td style="text-align:right">${c.count}</td></tr>`).join('');
 
   // Txn detail
-  allGstRows = d.transactions || [];
-  document.getElementById('gstSearch').value = '';
-  renderGstRows(allGstRows);
-}
-
-function renderGstRows(rows) {
-  document.getElementById('gstBody').innerHTML = rows.map(t => `
+  document.getElementById('gstBody').innerHTML = (d.transactions||[]).map(t => `
     <tr><td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td><td>${esc(t.category_name||'—')}</td>
     <td style="text-align:center;">${t.gst_applicable?'✓':'—'}</td>
     <td style="text-align:right"><input type="number" value="${t.amount}" step="0.01" style="border:none;background:transparent;font-family:var(--mono);font-size:11.5px;text-align:right;width:90px;" onchange="patchGst(${t.id},this.value)"/></td>
     <td style="text-align:right;font-family:var(--mono);">${fmt(t.gst_amount)}</td>
     <td style="text-align:right;font-family:var(--mono);">${fmt(t.net_amount)}</td></tr>`).join('');
-}
-
-function filterGstTable() {
-  const q = document.getElementById('gstSearch').value.toLowerCase();
-  if (!q) { renderGstRows(allGstRows); return; }
-  renderGstRows(allGstRows.filter(t =>
-    (t.date||'').toLowerCase().includes(q) ||
-    (t.description||'').toLowerCase().includes(q) ||
-    String(t.amount).includes(q) ||
-    (t.category_name||'').toLowerCase().includes(q)
-  ));
 }
 
 async function patchGst(id, val) {
@@ -2055,23 +1733,23 @@ document.getElementById("gstContinueBtn").addEventListener("click", async () => 
 async function loadPnl() {
   if (!statementId) return;
   const d = await fetch(`/api/statements/${statementId}/pnl`).then(r=>r.json());
-  // API returns: { income_lines: [{category, amount}], expense_lines: [{category, amount}],
-  //               total_income, total_expense, net_profit }
   const sections = [
-    { title: 'Income',   lines: d.income_lines  || [], total: d.total_income  || 0, color: 'var(--green)' },
-    { title: 'Expenses', lines: d.expense_lines || [], total: d.total_expense || 0, color: 'var(--red)' },
+    { title: 'Income', group: 'Income', color: 'var(--green)' },
+    { title: 'Expenses', group: 'Expense', color: 'var(--red)' }
   ];
-  let html = sections.map(s => `
-    <div style="margin-bottom:20px;">
+  let html = sections.map(s => {
+    const items = (d.by_category||[]).filter(c => c.pnl_group === s.group);
+    const total = items.reduce((a, c) => a + (c.net||0), 0);
+    return `<div style="margin-bottom:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
         <h3 style="font-size:13px;font-weight:700;color:${s.color};">${s.title}</h3>
-        <span style="font-family:var(--mono);font-weight:700;color:${s.color};">${fmt(s.total)}</span>
+        <span style="font-family:var(--mono);font-weight:700;color:${s.color};">${fmt(total)}</span>
       </div>
-      ${s.lines.length ? s.lines.map(c=>`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);">
-        <span>${esc(c.category)}</span><span style="font-family:var(--mono);">${fmt(c.amount)}</span></div>`).join('') :
-        `<div style="color:var(--muted);font-size:12px;padding:8px 0;">No ${s.title.toLowerCase()} lines</div>`}
-    </div>`).join('');
-  const netProfit = d.net_profit || 0;
+      ${items.map(c=>`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);">
+        <span>${esc(c.category_name)}</span><span style="font-family:var(--mono);">${fmt(c.net)}</span></div>`).join('')}
+    </div>`;
+  }).join('');
+  const netProfit = (d.summary?.net_profit || 0);
   html += `<div style="padding:14px;background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-radius:10px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
     <span style="font-size:14px;font-weight:700;">Net Profit / Loss</span>
     <span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</span>
@@ -2144,10 +1822,21 @@ document.getElementById("aiCatApplyBtn").addEventListener("click", async () => {
   const btn = document.getElementById("aiCatApplyBtn");
   btn.disabled = true; btn.textContent = "Applying…";
   try {
-    const r = await fetch(`/api/statements/${statementId}/ai-categorize/apply`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({response_text: text}) });
+    const r = await fetch(`/api/statements/${statementId}/ai-categorize/apply`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({response_text: text})
+    });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     renderAiCatResult(d);
+    // Refresh wfTransactions so categorize page is in sync after AI apply
+    if (statementId) {
+      const txnR = await fetch(`/api/statements/${statementId}/transactions`).then(r=>r.json());
+      wfTransactions = txnR;
+    }
+    // Refresh the AI page prompt so it only shows remaining uncategorized
+    loadAiCategorizePage();
   } catch(e) {
     document.getElementById("aiCatResultPanel").style.display = "block";
     document.getElementById("aiCatResultSummary").innerHTML = `<div style="color:var(--red);font-size:12px;">⚠ ${esc(e.message)}</div>`;
@@ -2189,649 +1878,21 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
 })();
 
 // ══════════════════════════════════════════════════════════════════════════
-// AI VISION PAGE — Tab switching + OCR + NVIDIA Chat
+// OCR TOOL
 // ══════════════════════════════════════════════════════════════════════════
 (function() {
-
-  // ── Tab switching ────────────────────────────────────────────────────────
-  document.querySelectorAll('.vision-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.vision-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.vision-tab-panel').forEach(p => p.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById('vtab-' + tab.dataset.vtab).classList.add('active');
-      if (tab.dataset.vtab === 'ocr') checkOcrStatus();
-      if (tab.dataset.vtab === 'json') jsonPreviewUpdate();
-    });
-  });
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // NVIDIA AI PLAYGROUND
-  // ══════════════════════════════════════════════════════════════════════════
-  const nvMessages   = document.getElementById('nvMessages');
-  const nvEmptyState = document.getElementById('nvEmptyState');
-  const nvInput      = document.getElementById('nvInput');
-  const nvSendBtn    = document.getElementById('nvSendBtn');
-  const nvClearBtn   = document.getElementById('nvClearBtn');
-  const nvAttachBtn  = document.getElementById('nvAttachBtn');
-  const nvInlineFile = document.getElementById('nvInlineFileInput');
-  const nvImgBar     = document.getElementById('nvImgAttachBar');
-  const nvImgThumb   = document.getElementById('nvImgAttachThumb');
-  const nvImgName    = document.getElementById('nvImgAttachName');
-  const nvRemoveAtt  = document.getElementById('nvRemoveAttach');
-  // Sidebar image upload
-  const nvDropZone   = document.getElementById('nvDropZone');
-  const nvFileInput  = document.getElementById('nvFileInput');
-  const nvFilePrev   = document.getElementById('nvFilePreviewWrap');
-  const nvFileTh     = document.getElementById('nvFileThumbnail');
-  const nvFileNm     = document.getElementById('nvFileName');
-  const nvRemoveFile = document.getElementById('nvRemoveFile');
-
-  let nvHistory = [];       // [{role, content (string)}] — text only for history
-  let nvAttachedImage = null; // { dataUrl, mime, name }
-  let nvIsStreaming = false;
-
-  // Auto-resize textarea
-  nvInput.addEventListener('input', () => {
-    nvInput.style.height = 'auto';
-    nvInput.style.height = Math.min(nvInput.scrollHeight, 120) + 'px';
-  });
-
-  // Send on Enter (Shift+Enter = newline)
-  nvInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendNvMessage(); }
-  });
-  nvSendBtn.addEventListener('click', sendNvMessage);
-  nvClearBtn.addEventListener('click', () => {
-    nvHistory = [];
-    nvAttachedImage = null;
-    nvImgBar.style.display = 'none';
-    nvMessages.innerHTML = '';
-    nvMessages.appendChild(nvEmptyState);
-    nvEmptyState.style.display = 'flex';
-  });
-
-  // Quick prompts → fill input
-  document.querySelectorAll('.nv-quick').forEach(btn => {
-    btn.addEventListener('click', () => {
-      nvInput.value = btn.dataset.p;
-      nvInput.dispatchEvent(new Event('input'));
-      nvInput.focus();
-    });
-  });
-
-  // ── Image attachment (attach button in input bar) ──
-  nvAttachBtn.addEventListener('click', () => nvInlineFile.click());
-  nvInlineFile.addEventListener('change', () => {
-    if (nvInlineFile.files[0]) attachNvImage(nvInlineFile.files[0]);
-  });
-  nvRemoveAtt.addEventListener('click', () => {
-    nvAttachedImage = null;
-    nvImgBar.style.display = 'none';
-    nvInlineFile.value = '';
-  });
-
-  // ── Sidebar image drop zone ──
-  nvDropZone.addEventListener('click', () => nvFileInput.click());
-  nvDropZone.addEventListener('dragover', e => { e.preventDefault(); nvDropZone.classList.add('drag'); });
-  nvDropZone.addEventListener('dragleave', () => nvDropZone.classList.remove('drag'));
-  nvDropZone.addEventListener('drop', e => {
-    e.preventDefault(); nvDropZone.classList.remove('drag');
-    if (e.dataTransfer.files[0]) attachNvImage(e.dataTransfer.files[0]);
-  });
-  nvFileInput.addEventListener('change', () => {
-    if (nvFileInput.files[0]) attachNvImage(nvFileInput.files[0]);
-  });
-  nvRemoveFile.addEventListener('click', () => {
-    nvAttachedImage = null;
-    nvFilePrev.style.display = 'none';
-    nvDropZone.style.display = 'block';
-    nvImgBar.style.display = 'none';
-    nvFileInput.value = '';
-  });
-
-  function attachNvImage(file) {
-    const reader = new FileReader();
-    reader.onload = e => {
-      // Resize + compress via canvas before storing — NVIDIA API limit is ~180KB base64
-      const img = new Image();
-      img.onload = () => {
-        const MAX = 1120; // px on longest side — keeps quality for OCR
-        let w = img.width, h = img.height;
-        if (w > MAX || h > MAX) {
-          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
-          else        { w = Math.round(w * MAX / h); h = MAX; }
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        // Use JPEG at 0.88 quality — good balance for text/OCR
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-        const kb = Math.round(dataUrl.length * 0.75 / 1024);
-        nvAttachedImage = { dataUrl, mime: 'image/jpeg', name: file.name };
-        // Show in input bar
-        nvImgThumb.src = dataUrl;
-        nvImgName.textContent = `${file.name} (${kb} KB)`;
-        nvImgBar.style.display = 'block';
-        // Show in sidebar
-        nvFileTh.src = dataUrl;
-        nvFileNm.textContent = `${file.name} · ${w}×${h} · ${kb} KB`;
-        nvFilePrev.style.display = 'block';
-        nvDropZone.style.display = 'none';
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-  }
-
-  // ── Render a message bubble ──
-  function appendNvBubble(role, text, imageDataUrl) {
-    nvEmptyState.style.display = 'none';
-    const wrap = document.createElement('div');
-    wrap.className = `nvidia-msg ${role}`;
-    const avatar = document.createElement('div');
-    avatar.className = 'avatar';
-    avatar.textContent = role === 'user' ? '👤' : '✦';
-    const bubble = document.createElement('div');
-    bubble.className = 'nvidia-bubble';
-    if (imageDataUrl && role === 'user') {
-      const img = document.createElement('img');
-      img.src = imageDataUrl; img.className = 'img-preview';
-      bubble.appendChild(img);
-    }
-    const textNode = document.createElement('span');
-    textNode.textContent = text;
-    bubble.appendChild(textNode);
-    wrap.appendChild(avatar);
-    wrap.appendChild(bubble);
-    nvMessages.appendChild(wrap);
-    nvMessages.scrollTop = nvMessages.scrollHeight;
-    return textNode; // return so we can stream into it
-  }
-
-  // ── Processing card (in-bubble) ────────────────────────────────────────
-  let nvTimerInterval = null;
-  let nvProcWrap = null;  // the assistant message div holding the card
-
-  function createProcCard() {
-    // Build the 3-phase processing card as an assistant bubble
-    nvEmptyState.style.display = 'none';
-    const wrap = document.createElement('div');
-    wrap.className = 'nvidia-msg assistant';
-    wrap.id = 'nvProcCard';
-    wrap.innerHTML = `
-      <div class="avatar">✦</div>
-      <div class="nv-proc-card">
-        <div class="nv-proc-phase" id="nv-phase-connect">
-          <div class="nv-phase-icon">📡</div>
-          <div class="nv-phase-info">
-            <div class="nv-phase-label">Connecting</div>
-            <div class="nv-phase-sub">Sending request to NVIDIA</div>
-          </div>
-          <span class="nv-phase-badge active" id="badge-connect">RUNNING</span>
-        </div>
-        <div class="nv-proc-phase" id="nv-phase-reason">
-          <div class="nv-phase-icon">🧠</div>
-          <div class="nv-phase-info">
-            <div class="nv-phase-label">Reasoning</div>
-            <div class="nv-phase-sub" id="reason-sub">Waiting…</div>
-          </div>
-          <span class="nv-phase-badge pending" id="badge-reason">WAITING</span>
-        </div>
-        <div class="nv-proc-phase" id="nv-phase-stream">
-          <div class="nv-phase-icon">✍</div>
-          <div class="nv-phase-info">
-            <div class="nv-phase-label">Generating</div>
-            <div class="nv-phase-sub" id="stream-sub">Waiting…</div>
-          </div>
-          <span class="nv-phase-badge pending" id="badge-stream">WAITING</span>
-        </div>
-        <div class="nv-progress-bar"><div class="nv-progress-fill" id="nvProgressFill" style="width:10%"></div></div>
-        <div class="nv-timer-row">
-          <span id="nvPhaseLabel">Connecting to NVIDIA…</span>
-          <span id="nvElapsed">0s</span>
-        </div>
-      </div>`;
-    nvMessages.appendChild(wrap);
-    nvMessages.scrollTop = nvMessages.scrollHeight;
-    nvProcWrap = wrap;
-
-    // Start elapsed timer
-    let secs = 0;
-    nvTimerInterval = setInterval(() => {
-      secs++;
-      const el = document.getElementById('nvElapsed');
-      if (el) el.textContent = secs + 's';
-    }, 1000);
-
-    return wrap;
-  }
-
-  function setProcPhase(phase) {
-    // phase: 'connect' | 'reason' | 'stream'
-    const phases = ['connect', 'reason', 'stream'];
-    const progress = { connect: '15%', reason: '45%', stream: '80%' };
-    const labels = {
-      connect: 'Connecting to NVIDIA…',
-      reason:  'Processing your request…',
-      stream:  'Generating response…',
-    };
-    phases.forEach((p, i) => {
-      const badge = document.getElementById('badge-' + p);
-      if (!badge) return;
-      const phaseIdx  = phases.indexOf(phase);
-      if (i < phaseIdx) {
-        badge.textContent = '✓ DONE';
-        badge.className = 'nv-phase-badge done-badge';
-      } else if (i === phaseIdx) {
-        badge.textContent = 'RUNNING';
-        badge.className = 'nv-phase-badge active';
-      } else {
-        badge.textContent = 'WAITING';
-        badge.className = 'nv-phase-badge pending';
-      }
-    });
-    const fill = document.getElementById('nvProgressFill');
-    if (fill) fill.style.width = progress[phase] || '10%';
-    const lbl = document.getElementById('nvPhaseLabel');
-    if (lbl) lbl.textContent = labels[phase] || '';
-
-    if (phase === 'reason') {
-      const sub = document.getElementById('reason-sub');
-      if (sub) sub.textContent = 'Internal chain-of-thought in progress';
-    }
-  }
-
-  function updateStreamSub(tokens) {
-    const sub = document.getElementById('stream-sub');
-    if (sub) sub.textContent = tokens + ' tokens generated';
-    const fill = document.getElementById('nvProgressFill');
-    // Progress 80% → 98% as tokens grow (cap at ~1000)
-    if (fill) fill.style.width = Math.min(98, 80 + (tokens / 1000) * 18) + '%';
-  }
-
-  function removeProcCard() {
-    clearInterval(nvTimerInterval);
-    const card = document.getElementById('nvProcCard');
-    if (card) card.remove();
-    nvProcWrap = null;
-  }
-
-  async function sendNvMessage() {
-    const text = nvInput.value.trim();
-    if ((!text && !nvAttachedImage) || nvIsStreaming) return;
-
-    const promptText = text || '(Analyze this image)';
-    const imgSnap = nvAttachedImage;
-    nvInput.value = ''; nvInput.style.height = 'auto';
-    nvSendBtn.disabled = true;
-    nvIsStreaming = true;
-
-    appendNvBubble('user', promptText, imgSnap?.dataUrl);
-
-    nvAttachedImage = null;
-    nvImgBar.style.display = 'none';
-    nvFilePrev.style.display = 'none';
-    nvDropZone.style.display = 'block';
-    nvFileInput.value = ''; nvInlineFile.value = '';
-
-    const apiMessages = [...nvHistory, { role: 'user', content: promptText }];
-
-    // Show the processing card — Phase 1: connecting
-    createProcCard();
-    setProcPhase('connect');
-
-    try {
-      const body = {
-        messages: apiMessages,
-        ...(imgSnap ? { image_b64: imgSnap.dataUrl, image_mime: imgSnap.mime } : {}),
-      };
-      const resp = await fetch('/tools/ocr/nvidia/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: resp.statusText }));
-        removeProcCard();
-        appendNvBubble('assistant', '⚠ Error: ' + (err.error || resp.statusText));
-        return;
-      }
-
-      // Phase 2: connected, model reasoning (waiting for first token)
-      setProcPhase('reason');
-
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let fullText = '';        // final answer only
-      let reasonText = '';      // thinking trace
-      let textNode = null;      // final answer span
-      let reasonNode = null;    // thinking span
-      let reasonWrap = null;    // collapsible wrapper
-      let tokenCount = 0;
-      let firstAnswerToken = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') break;
-          try {
-            const chunk = JSON.parse(data);
-            const delta = chunk.choices?.[0]?.delta || {};
-            const isReasoning = delta.reasoning === true;
-            // Strip the zero-width prefix we added server-side
-            const rawContent = (delta.content || '').replace(/^\u200b/, '');
-
-            if (isReasoning && rawContent) {
-              reasonText += rawContent;
-              if (!reasonWrap) {
-                nvEmptyState.style.display = 'none';
-                reasonWrap = document.createElement('div');
-                reasonWrap.className = 'nvidia-msg assistant';
-                reasonWrap.innerHTML = `
-                  <div class="avatar" style="opacity:.5;">🧠</div>
-                  <div style="flex:1;min-width:0;">
-                    <div style="font-size:10px;color:var(--muted);margin-bottom:4px;cursor:pointer;user-select:none;"
-                      onclick="const b=this.nextElementSibling;b.style.display=b.style.display==='none'?'':'none';this.textContent=b.style.display===''?'▼ Thinking…':'▶ Thinking (tap to expand)'">▼ Thinking…</div>
-                    <div id="nvThinkBody" style="background:var(--surface3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:10.5px;font-family:var(--mono);line-height:1.6;color:var(--text-dim);white-space:pre-wrap;max-height:160px;overflow-y:auto;word-break:break-word;"></div>
-                  </div>`;
-                nvMessages.appendChild(reasonWrap);
-              }
-              const thinkBody = document.getElementById('nvThinkBody');
-              if (thinkBody) { thinkBody.textContent = reasonText; thinkBody.scrollTop = thinkBody.scrollHeight; }
-              nvMessages.scrollTop = nvMessages.scrollHeight;
-
-            } else if (!isReasoning && rawContent) {
-              // Actual answer tokens
-              if (!firstAnswerToken) {
-                firstAnswerToken = true;
-                setProcPhase('stream');
-                removeProcCard();
-                textNode = appendNvBubble('assistant', '');
-              }
-              fullText += rawContent;
-              tokenCount++;
-              updateStreamSub(tokenCount);
-              textNode.textContent = fullText;
-              nvMessages.scrollTop = nvMessages.scrollHeight;
-            }
-          } catch(_e) {}
-        }
-      }
-
-      if (!firstAnswerToken && !reasonText) {
-        removeProcCard();
-        appendNvBubble('assistant', '(No response received — try again)');
-      } else if (!firstAnswerToken && reasonText) {
-        // Model put everything in reasoning_content and sent empty content.
-        // Use the reasoning text directly as the answer.
-        removeProcCard();
-        textNode = appendNvBubble('assistant', reasonText);
-        fullText = reasonText;
-      }
-
-      nvHistory.push({ role: 'user', content: promptText });
-      nvHistory.push({ role: 'assistant', content: fullText });
-
-    } catch (e) {
-      removeProcCard();
-      appendNvBubble('assistant', '⚠ ' + e.message);
-    } finally {
-      nvIsStreaming = false;
-      nvSendBtn.disabled = false;
-    }
-  }
-
-    // ══════════════════════════════════════════════════════════════════════════
-  // JSON IMPORT
-  // ══════════════════════════════════════════════════════════════════════════
-  const jsonPasteArea   = document.getElementById('jsonPasteArea');
-  const jsonConvertBtn  = document.getElementById('jsonConvertBtn');
-  const jsonConvertText = document.getElementById('jsonConvertText');
-  const jsonErrorBox    = document.getElementById('jsonErrorBox');
-  const jsonPreviewStats= document.getElementById('jsonPreviewStats');
-  const jsonPreviewTable= document.getElementById('jsonPreviewTable');
-  const jsonPreviewBody = document.getElementById('jsonPreviewBody');
-  const jsonPreviewEmpty= document.getElementById('jsonPreviewEmpty');
-  const jsonPreviewCount= document.getElementById('jsonPreviewCount');
-  const jsonClearBtn    = document.getElementById('jsonClearBtn');
-
-  // Aggressively extract JSON from messy text (markdown fences, explanations, trailing commas, etc.)
-  function extractJsonFromText(text) {
-    // 1. Strip markdown code fences  ```json ... ``` or ``` ... ```
-    text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
-
-    // 2. Clean common LLM JSON mistakes BEFORE trying to parse:
-    //    a) -$123.45  →  -123.45   (dollar sign inside a number)
-    //    b) "$123.45" →  "123.45"  when it appears as a bare JSON value (not in a string)
-    //       Actually leave string values alone — parseMoney handles those.
-    //       Only fix bare unquoted -$N values: e.g.  "debit": -$40000.00
-    text = text.replace(/:\s*-\s*\$\s*([\d,]+\.?\d*)/g, ': -$1');   // -$40000 → -40000
-    text = text.replace(/:\s*\+?\$\s*([\d,]+\.?\d*)/g, ': $1');      // :$40000 → :40000 (bare positive)
-    // Remove commas inside bare numbers:  -40,000.00 → -40000.00
-    text = text.replace(/:\s*(-?\d+),(\d{3})/g, ': $1$2');
-
-    // 3. Try direct parse first
-    try { return JSON.parse(text.trim()); } catch(_e) {}
-
-    // 4. Find the first [ and last ] — extract just that block
-    const firstBracket = text.indexOf('[');
-    const lastBracket  = text.lastIndexOf(']');
-    if (firstBracket !== -1 && lastBracket > firstBracket) {
-      const candidate = text.slice(firstBracket, lastBracket + 1);
-      const fixed = candidate
-        .replace(/,\s*}/g, '}')    // trailing commas
-        .replace(/,\s*]/g, ']');
-      try { return JSON.parse(fixed); } catch(_e) {}
-    }
-
-    // 5. Find first { and last } — maybe it's an object not wrapped in array
-    const firstBrace = text.indexOf('{');
-    const lastBrace  = text.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace > firstBrace) {
-      const candidate = text.slice(firstBrace, lastBrace + 1)
-        .replace(/,\s*}/g, '}')
-        .replace(/,\s*]/g, ']');
-      try { return JSON.parse(candidate); } catch(_e) {}
-      try { return JSON.parse('[' + candidate + ']'); } catch(_e) {}
-    }
-
-    return null;
-  }
-
-  // Parse a money string like "-$1,650.00" or "$25,000.00" or "1650" → float
-  function parseMoney(s) {
-    if (!s && s !== 0) return null;
-    const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ''));
-    return isNaN(n) ? null : n;
-  }
-
-  // Normalise one raw JSON object → canonical txn {transaction_id, date, description, amount, source_page}
-  function normaliseRow(raw, idx) {
-    // Date — try common keys
-    const date = raw['Date'] || raw['date'] || raw['DATE'] || '';
-    // Description
-    const desc = raw['Description'] || raw['description'] || raw['DESCRIPTION'] || raw['Narration'] || raw['details'] || '';
-
-    // Amount — handle every combination the model might output:
-    // • separate debit/credit fields (any case)
-    // • single amount field
-    // • debit already negative (e.g. -269.50), credit already positive
-    let amount = null;
-
-    const debitRaw  = raw['Debit']  ?? raw['debit']  ?? raw['DEBIT']  ?? null;
-    const creditRaw = raw['Credit'] ?? raw['credit'] ?? raw['CREDIT'] ?? null;
-    const amountRaw = raw['Amount'] ?? raw['amount'] ?? raw['AMOUNT'] ?? null;
-
-    if (debitRaw !== null || creditRaw !== null) {
-      const debitVal  = parseMoney(debitRaw);
-      const creditVal = parseMoney(creditRaw);
-      // Credit → positive, Debit → negative
-      // parseMoney preserves sign from the raw string, so -269.50 stays -269.50
-      if (creditVal !== null && creditVal !== 0) {
-        amount = Math.abs(creditVal);           // credits always positive
-      } else if (debitVal !== null && debitVal !== 0) {
-        amount = -Math.abs(debitVal);           // debits always negative
-      } else {
-        amount = 0;
-      }
-    } else if (amountRaw !== null) {
-      amount = parseMoney(amountRaw);
-    }
-
-    return { transaction_id: idx + 1, date, description: desc, amount: amount ?? 0, source_page: null };
-  }
-
-  // Extract transactions array from whatever was pasted (array or object with Transactions key)
-  function extractTransactions(raw) {
-    if (Array.isArray(raw)) {
-      // Could be array of txns directly, or array of account objects
-      if (raw.length && raw[0]['Transactions']) {
-        return raw[0]['Transactions'];
-      }
-      // Direct array of txns — check if has Date/Description
-      if (raw.length && (raw[0]['Date'] || raw[0]['date'])) return raw;
-      // Maybe wrapper object is one item
-      return raw;
-    }
-    if (raw['Transactions']) return raw['Transactions'];
-    if (raw['transactions']) return raw['transactions'];
-    return [];
-  }
-
-  let jsonParsedTxns = [];
-
-  function jsonPreviewUpdate() {
-    const raw = jsonPasteArea.value.trim();
-    jsonErrorBox.style.display = 'none';
-    jsonPreviewStats.style.display = 'none';
-    if (!raw) {
-      jsonPreviewEmpty.style.display = 'flex';
-      jsonPreviewTable.style.display = 'none';
-      jsonPreviewCount.textContent = '';
-      jsonParsedTxns = [];
-      return;
-    }
-    const parsed = extractJsonFromText(raw);
-    if (!parsed) {
-      jsonErrorBox.textContent = '⚠ Invalid JSON — check for missing brackets or trailing commas.';
-      jsonErrorBox.style.display = 'block';
-      jsonPreviewEmpty.style.display = 'flex';
-      jsonPreviewTable.style.display = 'none';
-      jsonParsedTxns = [];
-      return;
-    }
-    const rawTxns = extractTransactions(parsed);
-    if (!rawTxns.length) {
-      jsonErrorBox.textContent = '⚠ No transactions found. Make sure you\'re pasting a [ ] array of transaction objects.';
-      jsonErrorBox.style.display = 'block';
-      jsonPreviewEmpty.style.display = 'flex';
-      jsonPreviewTable.style.display = 'none';
-      jsonParsedTxns = [];
-      return;
-    }
-    jsonParsedTxns = rawTxns.map(normaliseRow);
-    const credits = jsonParsedTxns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
-    const debits  = jsonParsedTxns.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0);
-    const net     = credits + debits;
-    jsonPreviewStats.textContent = `✓ ${jsonParsedTxns.length} transactions · Credits ${fmt(credits)} · Debits ${fmt(Math.abs(debits))} · Net ${fmt(net)}`;
-    jsonPreviewStats.style.display = 'block';
-    jsonPreviewCount.textContent = jsonParsedTxns.length + ' transactions';
-    // Render preview table
-    jsonPreviewBody.innerHTML = jsonParsedTxns.map(t => `
-      <tr style="border-bottom:1px solid var(--border);">
-        <td style="padding:5px 10px;color:var(--muted);font-family:var(--mono);">${t.transaction_id}</td>
-        <td style="padding:5px 10px;font-family:var(--mono);white-space:nowrap;">${esc(t.date)}</td>
-        <td style="padding:5px 10px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.description)}">${esc(t.description)}</td>
-        <td style="padding:5px 10px;text-align:right;font-family:var(--mono);color:${t.amount>=0?'var(--green)':'var(--red)'};">${fmt(t.amount)}</td>
-        <td style="padding:5px 10px;text-align:center;"><span class="badge ${t.amount>=0?'cr':'dr'}">${t.amount>=0?'CR':'DR'}</span></td>
-      </tr>`).join('');
-    jsonPreviewEmpty.style.display = 'none';
-    jsonPreviewTable.style.display = 'table';
-  }
-
-  // Live preview on paste/type (debounced)
-  let jsonDebounce;
-  jsonPasteArea.addEventListener('input', () => {
-    clearTimeout(jsonDebounce);
-    jsonDebounce = setTimeout(jsonPreviewUpdate, 400);
-  });
-
-  jsonClearBtn.addEventListener('click', () => {
-    jsonPasteArea.value = '';
-    jsonPreviewUpdate();
-  });
-
-  jsonConvertBtn.addEventListener('click', () => {
-    if (!jsonParsedTxns.length) { jsonPreviewUpdate(); return; }
-
-    // Populate the global allTxns used by the parse page
-    allTxns = jsonParsedTxns;
-    allAmbiguous = [];
-    ambDecisions = {};
-    parseMeta = { bank_id: 'json-import', filename: 'JSON Import' };
-    statementId = null;
-
-    // Update statement name input on parse page if provided
-    const name = document.getElementById('jsonStmtName').value.trim();
-    if (name) document.getElementById('stmtNameInput').value = name;
-
-    // Populate stats panel on parse page
-    const credits = allTxns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
-    const debits  = allTxns.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0);
-    document.getElementById('totalCount').textContent   = allTxns.length;
-    document.getElementById('totalCredits').textContent = fmt(credits);
-    document.getElementById('totalDebits').textContent  = fmt(Math.abs(debits));
-    document.getElementById('netVal').textContent       = fmt(credits + debits);
-    document.getElementById('statsSection').style.display = 'block';
-    document.getElementById('sidebarFooter').textContent  = `JSON Import · ${allTxns.length} transactions`;
-
-    // Show the JSON source badge in detection chip
-    document.getElementById('autoLabel').textContent = '📋 JSON Import';
-    document.getElementById('autoChip').querySelector('.dot').style.background = 'var(--accent)';
-
-    // Show placeholder in PDF panel instead of PDF
-    const pdfContent = document.getElementById('pdfContent') || document.querySelector('#pdfPanel .pdf-inner') || document.getElementById('pdfPanel');
-    if (pdfContent) {
-      pdfContent.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;color:var(--text-dim);padding:20px;text-align:center;">
-        <div style="font-size:36px;">📋</div>
-        <div style="font-size:13px;font-weight:600;">JSON Import</div>
-        <div style="font-size:11px;line-height:1.6;">No PDF to display — this statement was imported directly from JSON.<br>All ${allTxns.length} transactions are loaded and ready for workflow.</div>
-      </div>`;
-    }
-
-    // Render table and navigate to parse page
-    renderTable(allTxns);
-    emptyState.style.display = 'none';
-    tableWrap.style.display = 'block';
-    document.getElementById('toolbar').style.display = 'flex';
-    unlockNav('parse');
-    goPage('parse');
-  });
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // OCR TOOL (original)
-  // ══════════════════════════════════════════════════════════════════════════
-  const ocrDropZone  = document.getElementById('ocrDropZone');
-  const ocrFileInput = document.getElementById('ocrFileInput');
-  const ocrFileChosen= document.getElementById('ocrFileChosen');
-  const ocrFileName  = document.getElementById('ocrFileName');
-  const ocrRemoveBtn = document.getElementById('ocrRemoveFile');
-  const ocrRunBtn    = document.getElementById('ocrRunBtn');
-  const ocrSpinner   = document.getElementById('ocrSpinner');
-  const ocrBtnText   = document.getElementById('ocrBtnText');
-  const ocrTextResult= document.getElementById('ocrTextResult');
-  const ocrCopyBtn   = document.getElementById('ocrCopyBtn');
-  const ocrDlBtn     = document.getElementById('ocrDownloadBtn');
-  const ocrStatusBox = document.getElementById('ocrStatusBox');
+  const dropZone  = document.getElementById('ocrDropZone');
+  const fileInput = document.getElementById('ocrFileInput');
+  const fileChosen= document.getElementById('ocrFileChosen');
+  const fileName  = document.getElementById('ocrFileName');
+  const removeBtn = document.getElementById('ocrRemoveFile');
+  const runBtn    = document.getElementById('ocrRunBtn');
+  const spinner   = document.getElementById('ocrSpinner');
+  const btnText   = document.getElementById('ocrBtnText');
+  const textResult= document.getElementById('ocrTextResult');
+  const copyBtn   = document.getElementById('ocrCopyBtn');
+  const dlBtn     = document.getElementById('ocrDownloadBtn');
+  const statusBox = document.getElementById('ocrStatusBox');
   let ocrFile = null;
 
   // Check Tesseract status on load
@@ -2840,13 +1901,13 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
       const r = await fetch('/tools/ocr/status');
       const d = await r.json();
       if (d.tesseract_available) {
-        ocrStatusBox.style.background = 'var(--green-lo)';
-        ocrStatusBox.style.borderColor = 'rgba(21,128,61,.25)';
-        ocrStatusBox.innerHTML = `<div style="color:var(--green);font-weight:700;">✓ Tesseract ${d.version} ready</div><div style="color:var(--text-dim);margin-top:2px;">${esc(d.message)}</div>`;
+        statusBox.style.background = 'var(--green-lo)';
+        statusBox.style.borderColor = 'rgba(21,128,61,.25)';
+        statusBox.innerHTML = `<div style="color:var(--green);font-weight:700;">✓ Tesseract ${d.version} ready</div><div style="color:var(--text-dim);margin-top:2px;">${esc(d.message)}</div>`;
       } else {
-        ocrStatusBox.style.background = 'var(--red-lo)';
-        ocrStatusBox.style.borderColor = 'rgba(220,38,38,.25)';
-        ocrStatusBox.innerHTML = `
+        statusBox.style.background = 'var(--red-lo)';
+        statusBox.style.borderColor = 'rgba(220,38,38,.25)';
+        statusBox.innerHTML = `
           <div style="color:var(--red);font-weight:700;">✗ Tesseract not found</div>
           <div style="color:var(--text-dim);margin-top:4px;line-height:1.6;">
             <strong>To fix:</strong><br>
@@ -2859,195 +1920,62 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
           </div>`;
       }
     } catch(e) {
-      ocrStatusBox.innerHTML = `<div style="color:var(--muted);">Could not check status: ${esc(e.message)}</div>`;
+      statusBox.innerHTML = `<div style="color:var(--muted);">Could not check status: ${esc(e.message)}</div>`;
     }
   }
   checkOcrStatus();
 
   function chooseOcrFile(f) {
     ocrFile = f;
-    ocrFileName.textContent = f.name;
-    ocrFileChosen.style.display = 'flex';
-    ocrDropZone.style.display = 'none';
-    ocrRunBtn.disabled = false;
+    fileName.textContent = f.name;
+    fileChosen.style.display = 'flex';
+    dropZone.style.display = 'none';
+    runBtn.disabled = false;
     document.getElementById('ocrFileIcon').textContent = f.type.startsWith('image') ? '🖼' : '📄';
   }
 
-  ocrDropZone.addEventListener('click', () => ocrFileInput.click());
-  ocrDropZone.addEventListener('dragover', e => { e.preventDefault(); ocrDropZone.classList.add('drag'); });
-  ocrDropZone.addEventListener('dragleave', () => ocrDropZone.classList.remove('drag'));
-  ocrDropZone.addEventListener('drop', e => { e.preventDefault(); ocrDropZone.classList.remove('drag'); if(e.dataTransfer.files[0]) chooseOcrFile(e.dataTransfer.files[0]); });
-  ocrFileInput.addEventListener('change', () => { if(ocrFileInput.files[0]) chooseOcrFile(ocrFileInput.files[0]); });
-  ocrRemoveBtn.addEventListener('click', () => {
-    ocrFile = null; ocrFileChosen.style.display = 'none'; ocrDropZone.style.display = 'block';
-    ocrRunBtn.disabled = true; ocrTextResult.value = '';
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag'); if(e.dataTransfer.files[0]) chooseOcrFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener('change', () => { if(fileInput.files[0]) chooseOcrFile(fileInput.files[0]); });
+  removeBtn.addEventListener('click', () => {
+    ocrFile = null; fileChosen.style.display = 'none'; dropZone.style.display = 'block';
+    runBtn.disabled = true; textResult.value = '';
     document.getElementById('ocrStatsSection').style.display = 'none';
-    ocrCopyBtn.style.display = 'none'; ocrDlBtn.style.display = 'none';
+    copyBtn.style.display = 'none'; dlBtn.style.display = 'none';
   });
 
-  ocrRunBtn.addEventListener('click', async () => {
+  runBtn.addEventListener('click', async () => {
     if (!ocrFile) return;
-    ocrSpinner.style.display = 'block'; ocrBtnText.textContent = 'Extracting…'; ocrRunBtn.disabled = true;
-    ocrTextResult.value = '';
+    spinner.style.display = 'block'; btnText.textContent = 'Extracting…'; runBtn.disabled = true;
+    textResult.value = '';
     try {
       const fd = new FormData(); fd.append('file', ocrFile);
       const r = await fetch('/tools/ocr/extract', { method:'POST', body: fd });
       const d = await r.json();
-      if (d.error) { ocrTextResult.value = '⚠ ERROR: ' + d.error; return; }
-      ocrTextResult.value = d.text || '(no text extracted)';
+      if (d.error) { textResult.value = '⚠ ERROR: ' + d.error; return; }
+      textResult.value = d.text || '(no text extracted)';
       document.getElementById('ocrWordCount').textContent = d.word_count || 0;
       document.getElementById('ocrLineCount').textContent = d.line_count || 0;
       document.getElementById('ocrStatsSection').style.display = 'block';
-      ocrCopyBtn.style.display = 'inline-flex';
-      ocrDlBtn.style.display = 'inline-flex';
+      copyBtn.style.display = 'inline-flex';
+      dlBtn.style.display = 'inline-flex';
     } catch(e) {
-      ocrTextResult.value = '⚠ ' + e.message;
+      textResult.value = '⚠ ' + e.message;
     } finally {
-      ocrSpinner.style.display = 'none'; ocrBtnText.textContent = 'Extract Text'; ocrRunBtn.disabled = false;
+      spinner.style.display = 'none'; btnText.textContent = 'Extract Text'; runBtn.disabled = false;
     }
   });
 
-  ocrCopyBtn.addEventListener('click', () => { navigator.clipboard.writeText(ocrTextResult.value); ocrCopyBtn.textContent = 'Copied!'; setTimeout(() => ocrCopyBtn.textContent = 'Copy All', 1500); });
-  ocrDlBtn.addEventListener('click', () => {
-    const a = document.createElement('a'); a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(ocrTextResult.value);
+  copyBtn.addEventListener('click', () => { navigator.clipboard.writeText(textResult.value); copyBtn.textContent = 'Copied!'; setTimeout(() => copyBtn.textContent = 'Copy All', 1500); });
+  dlBtn.addEventListener('click', () => {
+    const a = document.createElement('a'); a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(textResult.value);
     a.download = 'ocr_extract.txt'; a.click();
   });
 })();
 
 // ══════════════════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════════════════
-// CSV / EXCEL IMPORT — parse page upload area
-// ══════════════════════════════════════════════════════════════════════════
-(function() {
-  const csvDrop    = document.getElementById('csvDropZone');
-  const csvInput   = document.getElementById('csvFileInput');
-  const csvChosen  = document.getElementById('csvFileChosen');
-  const csvName    = document.getElementById('csvFileName');
-  const csvRemove  = document.getElementById('csvRemoveFile');
-  const csvBtn     = document.getElementById('csvImportBtn');
-  const csvBtnText = document.getElementById('csvImportBtnText');
-  const csvErrBox  = document.getElementById('csvErrorBox');
-  let csvFile = null;
-
-  function setCsvError(msg) {
-    csvErrBox.textContent = msg;
-    csvErrBox.style.display = msg ? 'block' : 'none';
-  }
-
-  function selectCsvFile(f) {
-    csvFile = f;
-    csvName.textContent = f.name;
-    csvChosen.style.display = 'flex';
-    csvDrop.style.display = 'none';
-    csvBtn.disabled = false;
-    setCsvError('');
-  }
-
-  csvDrop.addEventListener('click', () => csvInput.click());
-  csvDrop.addEventListener('dragover', e => { e.preventDefault(); csvDrop.classList.add('drag'); });
-  csvDrop.addEventListener('dragleave', () => csvDrop.classList.remove('drag'));
-  csvDrop.addEventListener('drop', e => {
-    e.preventDefault(); csvDrop.classList.remove('drag');
-    if (e.dataTransfer.files[0]) selectCsvFile(e.dataTransfer.files[0]);
-  });
-  csvInput.addEventListener('change', () => { if (csvInput.files[0]) selectCsvFile(csvInput.files[0]); });
-  csvRemove.addEventListener('click', () => {
-    csvFile = null; csvInput.value = '';
-    csvChosen.style.display = 'none';
-    csvDrop.style.display = 'block';
-    csvBtn.disabled = true;
-    setCsvError('');
-  });
-
-  csvBtn.addEventListener('click', async () => {
-    if (!csvFile) return;
-    csvBtn.disabled = true;
-    csvBtnText.textContent = 'Importing…';
-    setCsvError('');
-    try {
-      const fd = new FormData();
-      fd.append('file', csvFile);
-      const r = await fetch('/api/import/csv', { method: 'POST', body: fd });
-      const d = await r.json();
-      if (!r.ok || d.error) { setCsvError(d.error || 'Import failed'); return; }
-
-      // Populate exactly the same globals as a PDF parse would
-      allTxns = d.transactions;
-      allAmbiguous = [];
-      ambDecisions = {};
-      parseMeta = { bank_id: 'csv-import', filename: csvFile.name };
-      statementId = d.statement_id || null;
-      activeStatementId = statementId;
-
-      const name = document.getElementById('stmtNameInput').value.trim() || csvFile.name.replace(/\.[^/.]+$/, '');
-      document.getElementById('stmtNameInput').value = name;
-      document.getElementById('autoLabel').textContent = '📊 CSV/Excel Import';
-      document.getElementById('autoChip').querySelector('.dot').style.background = 'var(--accent)';
-
-      const credits = allTxns.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
-      const debits  = allTxns.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0);
-      document.getElementById('totalCount').textContent   = allTxns.length;
-      document.getElementById('totalCredits').textContent = fmt(credits);
-      document.getElementById('totalDebits').textContent  = fmt(Math.abs(debits));
-      document.getElementById('netVal').textContent       = fmt(credits+debits);
-      document.getElementById('statsSection').style.display = 'block';
-      document.getElementById('sidebarFooter').textContent  = `CSV Import · ${allTxns.length} txns`;
-
-      renderTable(allTxns);
-      emptyState.style.display = 'none';
-      tableWrap.style.display  = 'block';
-      document.getElementById('toolbar').style.display = 'flex';
-      unlockNav('parse', 'approve', 'categorize', 'gst', 'pnl', 'aicategorize');
-      markDone('parse');
-    } catch(e) {
-      setCsvError('Error: ' + e.message);
-    } finally {
-      csvBtn.disabled = false;
-      csvBtnText.textContent = '📊 Import Transactions';
-    }
-  });
-})();
-
-// ══════════════════════════════════════════════════════════════════════════
-// GST EXPORT TO EXCEL
-// ══════════════════════════════════════════════════════════════════════════
-document.getElementById('gstExportBtn').addEventListener('click', async () => {
-  if (!statementId) return;
-  const btn = document.getElementById('gstExportBtn');
-  btn.textContent = 'Exporting…'; btn.disabled = true;
-  try {
-    const r = await fetch(`/api/statements/${statementId}/export/gst`);
-    if (!r.ok) { alert('Export failed: ' + (await r.text())); return; }
-    const blob = await r.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `gst_summary_stmt${statementId}.xlsx`;
-    a.click(); URL.revokeObjectURL(url);
-  } catch(e) { alert('Export error: ' + e.message); }
-  finally { btn.textContent = '⬇ Export Excel'; btn.disabled = false; }
-});
-
-// ══════════════════════════════════════════════════════════════════════════
-// P&L EXPORT TO EXCEL
-// ══════════════════════════════════════════════════════════════════════════
-document.getElementById('pnlExportBtn').addEventListener('click', async () => {
-  if (!statementId) return;
-  const btn = document.getElementById('pnlExportBtn');
-  btn.textContent = 'Exporting…'; btn.disabled = true;
-  try {
-    const r = await fetch(`/api/statements/${statementId}/export/pnl`);
-    if (!r.ok) { alert('Export failed: ' + (await r.text())); return; }
-    const blob = await r.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `pnl_stmt${statementId}.xlsx`;
-    a.click(); URL.revokeObjectURL(url);
-  } catch(e) { alert('Export error: ' + e.message); }
-  finally { btn.textContent = '⬇ Export Excel'; btn.disabled = false; }
-});
-
 // AI CHAT FLOAT
 // ══════════════════════════════════════════════════════════════════════════
 (function() {

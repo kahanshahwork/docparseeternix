@@ -668,9 +668,9 @@ def ai_categorize_prompt(sid):
 
     if not txns:
         return jsonify({
-            "prompts": [],
+            "batches": [],
             "categories": cat_names,
-            "uncategorized_count": 0,
+            "total_uncategorized": 0,
             "message": "No uncategorized transactions — nothing to do."
         })
 
@@ -739,9 +739,9 @@ def ai_categorize_prompt(sid):
     ]
 
     return jsonify({
-        "prompts": prompts,
+        "batches": prompts,
         "categories": cat_names,
-        "uncategorized_count": len(txns),
+        "total_uncategorized": len(txns),
         "business_type": business_type_label
     })
 

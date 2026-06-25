@@ -720,8 +720,19 @@ def _parse_activity(pages) -> list:
             if not amt_words:
                 continue
 
-            # Parse the signed amount from the amount token
-            amt_val = _parse_num(amt_words[0]["text"])
+            # When multiple amount tokens on anchor row, prefer:
+            # 1. Tokens with explicit $ sign (actual transaction amounts)
+            # 2. Rightmost token (amounts are right-aligned in their column)
+            # This handles cases like "SECTION 7.11" where 7.11 is a reference
+            # code that sits left of the real transaction amount "-$29,067.75"
+            dollar_amts = [w for w in amt_words if re.match(r"^[+\-−]?\$", w["text"])]
+            if dollar_amts:
+                # Use rightmost $ amount
+                best_amt = max(dollar_amts, key=lambda w: w["x0"])
+            else:
+                # Use rightmost plain amount
+                best_amt = max(amt_words, key=lambda w: w["x0"])
+            amt_val = _parse_num(best_amt["text"])
             if amt_val is None:
                 continue
 
@@ -738,8 +749,17 @@ def _parse_activity(pages) -> list:
 
         # Pass 2: assign non-anchor desc rows to their nearest anchor
         txn_rows: dict[float, list] = defaultdict(list)
+        # Collect header row top values so Pass 2 skips them
+        header_tops_set = set()
+        if header:
+            for w in header:
+                header_tops_set.add(round(w["top"], 1))
+
         for top in sorted_tops:
             if top in anchors or top in absorbed:
+                continue
+            # Skip header row words — they are column labels not description
+            if top in header_tops_set:
                 continue
             if top >= footer_top:
                 break
