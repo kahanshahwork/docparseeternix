@@ -215,15 +215,6 @@ td { padding: 7px 10px; font-size: 11.5px; }
 .legend { display:flex; gap:12px; padding: 6px 12px; font-size: 9.5px; color: var(--text-dim); border-bottom: 1px solid var(--border); }
 .legend .sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:3px; vertical-align:-1px; }
 
-/* ── Split window ── */
-.split-container { flex: 1; display: flex; overflow: hidden; min-height: 0; }
-.split-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 300px; border-right: 1px solid var(--border); }
-.split-pane:last-child { border-right: none; }
-.split-divider { width: 5px; background: var(--border); cursor: col-resize; flex-shrink: 0; transition: background .15s; }
-.split-divider:hover { background: var(--accent); }
-.split-header { padding: 8px 14px; background: var(--surface2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: 11px; font-weight: 700; }
-.split-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; }
-.split-close:hover { color: var(--red); }
 
 /* ── Modal ── */
 .modal-overlay { display:none; position:fixed; inset:0; background:rgba(20,24,40,.45); z-index:100; align-items:center; justify-content:center; }
@@ -307,7 +298,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="nav-label">Tools</div>
     <div class="nav-item" data-page="aicategorize"><span class="ic">🤖</span> AI Categorize</div>
     <div class="nav-item" data-page="ocr"><span class="ic">🔍</span> OCR Extractor</div>
-    <div class="nav-item" id="splitWindowNav"><span class="ic">⊞</span> Split Window</div>
     <div class="nav-item" id="chatToggleNav"><span class="ic">≡</span> AI Chat</div>
   </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded</div>
@@ -389,7 +379,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <h1>Upload &amp; Parse</h1>
     <span class="sub" id="parsePageSub">Upload a bank statement PDF for the active quarter</span>
     <div class="right">
-      <button class="btn-sec" id="splitParseBtn">⊞ Split Window</button>
     </div>
   </div>
 
@@ -410,6 +399,26 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
           <span class="file-name" id="fileNameLabel"></span>
           <button class="file-remove" id="removeFile" title="Remove">✕</button>
         </div>
+      </div>
+
+      <div class="sb-section">
+        <div class="sb-label">Or Import CSV / Excel</div>
+        <div class="drop-zone" id="csvDropZone" style="border-color:var(--accent);">
+          <div class="drop-icon" style="color:var(--accent);">📊</div>
+          <div class="drop-hint"><strong>Click or drop</strong> a CSV or Excel file</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;">.CSV · .XLSX · .XLS</div>
+        </div>
+        <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" style="display:none"/>
+        <div class="file-chosen" id="csvFileChosen" style="display:none;">
+          <span style="font-size:17px;">📊</span>
+          <span class="file-name" id="csvFileNameLabel"></span>
+          <button class="file-remove" id="csvRemoveFile" title="Remove">✕</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px;">
+          Needs columns: <strong>Date</strong>, <strong>Description</strong>, <strong>Debit/Credit</strong> or <strong>Amount</strong>
+        </div>
+        <button class="btn" id="csvImportBtn" disabled style="margin-top:8px;width:100%;background:var(--accent);">Import Transactions</button>
+        <div id="csvImportError" style="display:none;margin-top:6px;font-size:11px;color:var(--red);"></div>
       </div>
 
       <div class="sb-section">
@@ -794,19 +803,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
 </div>
 
 <!-- Split Window Modal: pick what to load in pane 2 -->
-<div class="modal-overlay" id="splitModal">
-  <div class="modal">
-    <h2>⊞ Open Split Window</h2>
-    <p>Choose a saved statement from any client/quarter to open side-by-side with the current view.</p>
-    <div class="form-row"><label>Client</label><select id="splitClientSel" class="form-input"><option value="">Select client…</option></select></div>
-    <div class="form-row"><label>Quarter</label><select id="splitQuarterSel" class="form-input" disabled><option value="">Select client first…</option></select></div>
-    <div class="form-row"><label>Statement</label><select id="splitStmtSel" class="form-input" disabled><option value="">Select quarter first…</option></select></div>
-    <div class="modal-footer">
-      <button class="btn-sec" id="splitModalCancel">Cancel</button>
-      <button class="btn" id="splitModalOpen">Open Side by Side →</button>
-    </div>
-  </div>
-</div>
+
 
 <!-- Ambiguous rows modal -->
 <div class="modal-overlay" id="ambModal">
@@ -884,7 +881,7 @@ function goPage(name) {
   if (name === "aicategorize") loadAiCategorizePage();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
-  if (item.id === "chatToggleNav" || item.id === "splitWindowNav") return;
+  if (item.id === "chatToggleNav") return;
   item.addEventListener("click", () => {
     if (item.classList.contains("disabled")) return;
     goPage(item.dataset.page);
@@ -1521,52 +1518,6 @@ function loadPdfPage(page, highlight, highlights) {
 // ══════════════════════════════════════════════════════════════════════════
 // SPLIT WINDOW
 // ══════════════════════════════════════════════════════════════════════════
-document.getElementById('splitWindowNav').addEventListener('click', openSplitModal);
-document.getElementById('splitParseBtn').addEventListener('click', openSplitModal);
-
-async function openSplitModal() {
-  document.getElementById('splitModal').classList.add('open');
-  const clients = await fetch('/api/clients').then(r => r.json()).catch(() => []);
-  const sel = document.getElementById('splitClientSel');
-  sel.innerHTML = '<option value="">Select client…</option>' + clients.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
-  document.getElementById('splitQuarterSel').innerHTML = '<option value="">Select client first…</option>';
-  document.getElementById('splitStmtSel').innerHTML = '<option value="">Select quarter first…</option>';
-  document.getElementById('splitQuarterSel').disabled = true;
-  document.getElementById('splitStmtSel').disabled = true;
-}
-
-document.getElementById('splitClientSel').addEventListener('change', async function() {
-  const id = this.value;
-  if (!id) return;
-  const qs = await fetch(`/api/quarters?client_id=${id}`).then(r => r.json()).catch(() => []);
-  const sel = document.getElementById('splitQuarterSel');
-  sel.innerHTML = '<option value="">Select quarter…</option>' + qs.map(q => `<option value="${q.id}">${esc(q.label)}</option>`).join('');
-  sel.disabled = false;
-  document.getElementById('splitStmtSel').innerHTML = '<option value="">Select quarter first…</option>';
-  document.getElementById('splitStmtSel').disabled = true;
-});
-
-document.getElementById('splitQuarterSel').addEventListener('change', async function() {
-  const id = this.value;
-  if (!id) return;
-  const stmts = await fetch(`/api/quarters/${id}/statements`).then(r => r.json()).catch(() => []);
-  const sel = document.getElementById('splitStmtSel');
-  sel.innerHTML = '<option value="">Select statement…</option>' + stmts.map(s => `<option value="${s.id}">${esc(s.statement_name || s.filename || 'Stmt #'+s.id)}</option>`).join('');
-  sel.disabled = false;
-});
-
-document.getElementById('splitModalCancel').addEventListener('click', () => document.getElementById('splitModal').classList.remove('open'));
-document.getElementById('splitModalOpen').addEventListener('click', () => {
-  const stmtId = document.getElementById('splitStmtSel').value;
-  if (!stmtId) return;
-  document.getElementById('splitModal').classList.remove('open');
-  openSplitWindow(parseInt(stmtId));
-});
-
-function openSplitWindow(stmtId) {
-  window.open('/split-view?stmt_id=' + stmtId, 'bas_split_' + stmtId, 'width=960,height=720,resizable=yes,scrollbars=yes');
-}
-// Split window served via /split-view → split.html
 
 // ══════════════════════════════════════════════════════════════════════════
 // WORKFLOW PAGES (Approve / Categorize / GST / PnL)
@@ -2014,6 +1965,96 @@ document.getElementById("aiCatGoToCategorize").addEventListener("click", () => g
 // BOOTSTRAP
 // ══════════════════════════════════════════════════════════════════════════
 loadClients();
+
+// ══════════════════════════════════════════════════════════════════════════
+// CSV / EXCEL IMPORT
+// ══════════════════════════════════════════════════════════════════════════
+(function() {
+  const dropZone    = document.getElementById('csvDropZone');
+  const fileInput   = document.getElementById('csvFileInput');
+  const fileChosen  = document.getElementById('csvFileChosen');
+  const fileLabel   = document.getElementById('csvFileNameLabel');
+  const removeBtn   = document.getElementById('csvRemoveFile');
+  const importBtn   = document.getElementById('csvImportBtn');
+  const errorDiv    = document.getElementById('csvImportError');
+  let   csvFile     = null;
+
+  function setFile(f) {
+    csvFile = f;
+    fileLabel.textContent = f.name;
+    fileChosen.style.display = 'flex';
+    dropZone.style.display   = 'none';
+    importBtn.disabled = false;
+    errorDiv.style.display = 'none';
+  }
+  function clearFile() {
+    csvFile = null;
+    fileChosen.style.display = 'none';
+    dropZone.style.display   = '';
+    importBtn.disabled = true;
+    fileInput.value = '';
+    errorDiv.style.display = 'none';
+  }
+
+  dropZone.addEventListener('click',      () => fileInput.click());
+  removeBtn.addEventListener('click',     clearFile);
+  fileInput.addEventListener('change',    e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+
+  dropZone.addEventListener('dragover',   e => { e.preventDefault(); dropZone.style.background = 'var(--accent-lo)'; });
+  dropZone.addEventListener('dragleave',  () => { dropZone.style.background = ''; });
+  dropZone.addEventListener('drop',       e => {
+    e.preventDefault(); dropZone.style.background = '';
+    const f = e.dataTransfer.files[0];
+    if (f && /\.(csv|xlsx|xls)$/i.test(f.name)) setFile(f);
+  });
+
+  importBtn.addEventListener('click', async () => {
+    if (!csvFile) return;
+    importBtn.disabled = true;
+    importBtn.textContent = 'Importing…';
+    errorDiv.style.display = 'none';
+    try {
+      const fd = new FormData();
+      fd.append('file', csvFile);
+      if (activeClientId)  fd.append('client_id',  activeClientId);
+      if (activeQuarterId) fd.append('quarter_id', activeQuarterId);
+      const name = document.getElementById('stmtNameInput').value.trim() || csvFile.name.replace(/\.[^.]+$/, '');
+      fd.append('name', name);
+
+      const r = await fetch('/api/statements/import-csv', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || 'Import failed');
+
+      // Treat exactly like a parsed statement
+      statementId      = d.statement_id;
+      activeStatementId = d.statement_id;
+      updateSidebarCtx();
+      unlockNav('approve','categorize','gst','pnl','aicategorize');
+      markDone('parse');
+      clearFile();
+      document.getElementById('stmtNameInput').value = '';
+      // Show summary
+      const txns = d.transactions || [];
+      const credits = txns.filter(t => t.amount > 0).reduce((s,t) => s+t.amount, 0);
+      const debits  = txns.filter(t => t.amount < 0).reduce((s,t) => s+Math.abs(t.amount), 0);
+      document.getElementById('statsSection').style.display = '';
+      document.getElementById('totalCount').textContent   = txns.length;
+      document.getElementById('totalCredits').textContent = fmt(credits);
+      document.getElementById('totalDebits').textContent  = '-' + fmt(debits);
+      document.getElementById('netVal').textContent       = fmt(credits - debits);
+      loadStatementsList();
+      loadSavedStatements();
+      goPage('approve');
+    } catch(e) {
+      errorDiv.style.display = '';
+      errorDiv.textContent   = '⚠ ' + e.message;
+    } finally {
+      importBtn.disabled = false;
+      importBtn.textContent = 'Import Transactions';
+    }
+  });
+})();
+
 </script>
 
 </body>
