@@ -1036,3 +1036,258 @@ def business_types():
             {"code": "CONSTRUCTION", "label": "Construction"},
             {"code": "HOSPITALITY", "label": "Hospitality"},
         ])
+
+
+@workflow_bp.route("/statements/import-csv", methods=["POST"])
+def import_csv_excel():
+    """
+    Import transactions from a CSV or Excel file.
+
+    Accepts .csv, .xlsx, .xls — any column header naming, any case.
+
+    Date column:   date, transaction date, txn date, value date, posted date, trans date
+    Desc column:   description, details, particulars, narrative, memo, reference,
+                   transaction details, trans desc, narration, remarks, note
+    Amount cols:   debit+credit (separate), or amount, debit/credit, net amount,
+                   withdrawal+deposit, withdrawals+deposits
+    """
+    import io as _io
+    from datetime import datetime as _dt
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    f          = request.files["file"]
+    fname      = (f.filename or "").lower()
+    name       = request.form.get("name", "").strip() or (f.filename or "Imported").rsplit(".", 1)[0]
+    client_id  = request.form.get("client_id",  type=int)
+    quarter_id = request.form.get("quarter_id", type=int)
+
+    raw = f.read()
+
+    # ── Parse file into list of dicts ─────────────────────────────────────────
+    try:
+        if fname.endswith(".csv"):
+            import csv
+            # Try UTF-8 with BOM first, fall back to latin-1
+            for enc in ("utf-8-sig", "utf-8", "latin-1"):
+                try:
+                    text = raw.decode(enc, errors="strict")
+                    break
+                except (UnicodeDecodeError, LookupError):
+                    continue
+            else:
+                text = raw.decode("latin-1", errors="replace")
+            reader = list(csv.DictReader(_io.StringIO(text)))
+            rows   = [dict(r) for r in reader]
+
+        elif fname.endswith((".xlsx", ".xls")):
+            try:
+                import openpyxl
+                wb  = openpyxl.load_workbook(_io.BytesIO(raw), read_only=True, data_only=True)
+                ws  = wb.active
+                all_rows = list(ws.iter_rows(values_only=True))
+                if not all_rows:
+                    return jsonify({"error": "Empty spreadsheet"}), 400
+                headers = [str(c).strip() if c is not None else f"col_{i}"
+                           for i, c in enumerate(all_rows[0])]
+                rows = [
+                    {h: (str(v).strip() if v is not None else "")
+                     for h, v in zip(headers, row)}
+                    for row in all_rows[1:]
+                ]
+            except ImportError:
+                return jsonify({"error": "openpyxl not installed — cannot read Excel files. "
+                                         "Run: pip install openpyxl"}), 500
+        else:
+            return jsonify({"error": "Unsupported file type. Use .csv, .xlsx or .xls"}), 400
+
+    except Exception as e:
+        return jsonify({"error": f"Could not read file: {e}"}), 400
+
+    if not rows:
+        return jsonify({"error": "File has no data rows"}), 400
+
+    # ── Flexible column detection — case-insensitive, fuzzy name matching ──────
+    def _find_col(headers, *candidates):
+        """
+        Find a column by any of the candidate names.
+        Matching: strip, lowercase, collapse whitespace.
+        """
+        normalise = lambda s: " ".join(s.lower().split())
+        norm_map  = {normalise(h): h for h in headers}
+        for c in candidates:
+            hit = norm_map.get(normalise(c))
+            if hit is not None:
+                return hit
+        # Partial-match fallback: if any candidate is a substring of a header
+        for c in candidates:
+            nc = normalise(c)
+            for nh, orig in norm_map.items():
+                if nc in nh or nh in nc:
+                    return orig
+        return None
+
+    headers   = list(rows[0].keys())
+    col_date  = _find_col(headers,
+                    "date", "transaction date", "txn date", "value date",
+                    "posted date", "trans date", "settlement date", "booking date")
+    col_desc  = _find_col(headers,
+                    "description", "details", "particulars", "narrative",
+                    "memo", "reference", "transaction details", "trans desc",
+                    "narration", "remarks", "note", "notes", "transaction description",
+                    "payment details", "transaction narrative", "payee")
+    col_deb   = _find_col(headers,
+                    "debit", "withdrawal", "withdrawals", "debit amount",
+                    "dr", "debit (aud)", "amount dr")
+    col_cred  = _find_col(headers,
+                    "credit", "deposit", "deposits", "credit amount",
+                    "cr", "credit (aud)", "amount cr")
+    col_amt   = _find_col(headers,
+                    "amount", "debit/credit", "credit/debit", "net amount",
+                    "transaction amount", "value", "net", "dr/cr amount")
+
+    # Validation
+    if not col_date:
+        found = ", ".join(f"'{h}'" for h in headers[:8])
+        return jsonify({"error": f"Cannot find a Date column. Found: {found}. "
+                                 f"Rename it to 'Date'."}), 400
+    if not col_desc:
+        found = ", ".join(f"'{h}'" for h in headers[:8])
+        return jsonify({"error": f"Cannot find a Description column. Found: {found}. "
+                                 f"Rename to 'Description' or 'Narrative'."}), 400
+    if not col_deb and not col_cred and not col_amt:
+        found = ", ".join(f"'{h}'" for h in headers[:8])
+        return jsonify({"error": f"Cannot find an Amount column. Found: {found}. "
+                                 f"Need 'Debit'+'Credit' or 'Amount'."}), 400
+
+    # ── Parse money ───────────────────────────────────────────────────────────
+    def _money(s):
+        if s is None: return None
+        s = str(s).strip().replace(",", "").replace("$", "").replace(" ", "")
+        if not s or s in ("-", "—", "–", ""): return None
+        # Handle (1234.56) accounting negatives
+        if s.startswith("(") and s.endswith(")"):
+            s = "-" + s[1:-1]
+        try: return float(s)
+        except ValueError: return None
+
+    # ── Parse date ────────────────────────────────────────────────────────────
+    def _date(s):
+        if not s: return None
+        s = str(s).strip()
+        # Excel serial number (float/int stored as string)
+        try:
+            serial = float(s)
+            if 1000 < serial < 100000:
+                from datetime import date as _date_cls, timedelta
+                # Excel epoch: 1899-12-30
+                return (_date_cls(1899, 12, 30) + timedelta(days=int(serial))).strftime("%d-%b-%Y")
+        except ValueError:
+            pass
+        for fmt in (
+            "%d/%m/%Y", "%d/%m/%y",
+            "%Y-%m-%d", "%Y/%m/%d",
+            "%d-%m-%Y", "%d-%m-%y",
+            "%d %b %Y", "%d %b %y",
+            "%d-%b-%Y", "%d-%b-%y",
+            "%d %B %Y", "%d %B %y",
+            "%m/%d/%Y", "%m/%d/%y",
+            "%d.%m.%Y", "%d.%m.%y",
+            "%b %d, %Y", "%B %d, %Y",
+            "%Y%m%d",
+        ):
+            try: return _dt.strptime(s, fmt).strftime("%d-%b-%Y")
+            except ValueError: continue
+        return s  # keep raw if unparseable
+
+    # ── Build transaction list ────────────────────────────────────────────────
+    transactions = []
+    skipped      = 0
+
+    for i, row in enumerate(rows):
+        date_raw = str(row.get(col_date, "") or "").strip()
+        desc     = str(row.get(col_desc, "") or "").strip()
+
+        # Skip completely empty rows
+        if not date_raw and not desc:
+            skipped += 1
+            continue
+
+        parsed_date = _date(date_raw)
+
+        if col_deb and col_cred:
+            dv = _money(row.get(col_deb))
+            cv = _money(row.get(col_cred))
+            amount = round((-abs(dv) if dv else 0.0) + (abs(cv) if cv else 0.0), 2)
+        elif col_amt:
+            amount = round(_money(row.get(col_amt)) or 0.0, 2)
+        else:
+            # Fallback: try debit only or credit only
+            dv = _money(row.get(col_deb)) if col_deb else None
+            cv = _money(row.get(col_cred)) if col_cred else None
+            amount = round((-abs(dv) if dv else 0.0) + (abs(cv) if cv else 0.0), 2)
+
+        if amount == 0.0 and not desc:
+            skipped += 1
+            continue
+
+        transactions.append({
+            "transaction_id": "",
+            "date":        parsed_date or "",
+            "description": desc,
+            "amount":      amount,
+            "balance":     None,
+            "source_page": 1,
+            "row_top":     float(i),
+            "confidence":  1.0,
+        })
+
+    if not transactions:
+        return jsonify({"error": f"No valid transactions found ({skipped} rows skipped). "
+                                 "Check the file has data rows and matching column names."}), 400
+
+    # Sort by date, then assign IDs
+    try:
+        transactions.sort(
+            key=lambda t: (_dt.strptime(t["date"], "%d-%b-%Y") if t["date"] else _dt.min,
+                           t["row_top"])
+        )
+    except Exception:
+        pass
+
+    for i, t in enumerate(transactions):
+        t["transaction_id"] = f"import_{i+1:04d}"
+
+    # ── Persist to DB ─────────────────────────────────────────────────────────
+    conn = get_db()
+
+    stmt_id = conn.execute(
+        "INSERT INTO statements (quarter_id, statement_name, bank_id, filename, parse_time_ms) "
+        "VALUES (?,?,?,?,?)",
+        (quarter_id, name, "import", f.filename or name, 0)
+    ).lastrowid
+    conn.commit()
+
+    for t in transactions:
+        conn.execute(
+            """INSERT INTO transactions
+               (statement_id, transaction_id, date, description, amount, balance,
+                source_page, row_top, confidence)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (stmt_id, t["transaction_id"], t["date"], t["description"],
+             t["amount"], t["balance"], t["source_page"], t["row_top"], t["confidence"])
+        )
+    conn.commit()
+
+    saved = [dict(r) for r in conn.execute(
+        "SELECT * FROM transactions WHERE statement_id = ? ORDER BY id", (stmt_id,)
+    ).fetchall()]
+
+    return jsonify({
+        "statement_id": stmt_id,
+        "transactions": saved,
+        "count":        len(saved),
+        "skipped":      skipped,
+        "name":         name,
+    })
