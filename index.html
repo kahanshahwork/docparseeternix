@@ -297,7 +297,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="nav-group">
     <div class="nav-label">Tools</div>
     <div class="nav-item" data-page="aicategorize"><span class="ic">🤖</span> AI Categorize</div>
-    <div class="nav-item" data-page="ocr"><span class="ic">🔍</span> OCR Extractor</div>
+    <div class="nav-item" data-page="aivision"><span class="ic">🔍</span> AI Vision</div>
     <div class="nav-item" id="chatToggleNav"><span class="ic">≡</span> AI Chat</div>
   </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded</div>
@@ -680,9 +680,114 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════════════
-     PAGE: OCR EXTRACTOR TOOL
+     PAGE: AI VISION (NVIDIA Nemotron Multimodal)
 ════════════════════════════════════════════════════════════════════════════ -->
-<div class="page" id="page-ocr">
+<div class="page" id="page-aivision">
+  <div class="page-header">
+    <h1>🔍 AI Vision</h1>
+    <span class="sub">NVIDIA Nemotron-3-Nano-Omni · Upload image → extract transactions → send to workflow</span>
+  </div>
+  <!-- Sub-tabs -->
+  <div style="display:flex;align-items:center;gap:0;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;padding:0 16px;overflow-x:auto;">
+    <div class="av-tab active" data-avtab="extract" style="padding:8px 16px 8px 0;font-size:11px;font-weight:700;color:var(--accent);border-bottom:2px solid var(--accent);cursor:pointer;white-space:nowrap;">① Upload &amp; Extract</div>
+    <div class="av-tab" data-avtab="json" style="padding:8px 16px;font-size:11px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;">② Paste JSON</div>
+    <div class="av-tab" data-avtab="chat" style="padding:8px 16px;font-size:11px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;">💬 AI Chat</div>
+  </div>
+  <!-- TAB: Upload & Extract -->
+  <div id="avtab-extract" style="flex:1;display:flex;overflow:hidden;min-height:0;">
+    <div style="width:300px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;">
+      <div class="sb-section">
+        <div class="sb-label">Upload Image</div>
+        <div class="drop-zone" id="avDropZone">
+          <div class="drop-icon">🖼</div>
+          <div class="drop-hint"><strong>Click or drop</strong> an image here</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;">PNG · JPG · WEBP</div>
+        </div>
+        <input type="file" id="avFileInput" accept=".png,.jpg,.jpeg,.webp" style="display:none"/>
+        <div class="file-chosen" id="avFileChosen" style="display:none;margin-top:8px;">
+          <span style="font-size:17px;">🖼</span>
+          <span class="file-name" id="avFileName"></span>
+          <button class="file-remove" id="avRemoveFile">✕</button>
+        </div>
+      </div>
+      <div class="sb-section" id="avPreviewSection" style="display:none;">
+        <img id="avPreviewImg" style="width:100%;border-radius:8px;border:1px solid var(--border);" alt="preview"/>
+      </div>
+      <div class="sb-section">
+        <div class="sb-label">Prompt</div>
+        <textarea id="avPrompt" style="width:100%;min-height:110px;padding:8px 10px;font-size:11px;line-height:1.6;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);resize:vertical;outline:none;font-family:var(--sans);">Extract all bank transactions from this image. Return ONLY a JSON array with this exact structure — no markdown, no explanation:
+[{"date":"DD/MM/YYYY","description":"...","amount":123.45}]
+
+Use negative amounts for debits/withdrawals, positive for credits/deposits.</textarea>
+      </div>
+      <div class="sb-section">
+        <button class="btn parse-btn" id="avRunBtn" disabled>
+          <div class="spinner" id="avSpinner"></div>
+          <span id="avBtnText">Extract with AI</span>
+        </button>
+        <div id="avError" style="display:none;margin-top:8px;font-size:11px;color:var(--red);"></div>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;overflow:hidden;padding:16px;background:var(--surface2);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-shrink:0;">
+        <span style="font-size:11px;font-weight:700;color:var(--text-dim);">AI Response (JSON)</span>
+        <div style="display:flex;gap:6px;">
+          <button class="btn-sec" id="avCopyResponse" style="display:none;">Copy</button>
+          <button class="btn-sec" id="avSendToJson" style="display:none;">Send to JSON Tab →</button>
+        </div>
+      </div>
+      <div id="avThinking" style="display:none;background:var(--amber-lo);border:1px solid rgba(180,83,9,.2);border-radius:8px;padding:10px 12px;font-size:10.5px;color:var(--amber);margin-bottom:10px;overflow-y:auto;max-height:120px;font-family:var(--mono);line-height:1.6;"></div>
+      <textarea id="avResponseBox" placeholder="AI response will stream here…" readonly style="flex:1;width:100%;padding:12px;font-family:var(--mono);font-size:11.5px;line-height:1.7;border:1.5px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);resize:none;outline:none;"></textarea>
+    </div>
+  </div>
+  <!-- TAB: Paste JSON -->
+  <div id="avtab-json" style="flex:1;display:none;flex-direction:column;overflow:hidden;padding:16px;background:var(--surface2);">
+    <div style="max-width:900px;width:100%;display:flex;flex-direction:column;gap:14px;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+        <div style="font-size:11px;font-weight:700;margin-bottom:8px;">Paste JSON Array</div>
+        <div style="font-size:10.5px;color:var(--text-dim);margin-bottom:8px;">Paste the JSON array from the AI response. Expected format: <code style="font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:4px;">[{"date":"...","description":"...","amount":...}]</code></div>
+        <textarea id="avJsonInput" placeholder='[{"date":"01/07/2024","description":"Woolworths","amount":-45.50},{"date":"02/07/2024","description":"Customer Payment","amount":1200.00}]' style="width:100%;min-height:180px;padding:10px 12px;font-family:var(--mono);font-size:11.5px;line-height:1.7;border:1.5px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);resize:vertical;outline:none;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn" id="avParseJsonBtn">Parse &amp; Preview Transactions →</button>
+          <button class="btn-sec" id="avClearJsonBtn">Clear</button>
+        </div>
+        <div id="avJsonError" style="display:none;margin-top:8px;font-size:11px;color:var(--red);"></div>
+      </div>
+      <div id="avJsonPreviewSection" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <div>
+            <div style="font-size:11px;font-weight:700;">Transaction Preview</div>
+            <div style="font-size:10px;color:var(--muted);" id="avJsonCount"></div>
+          </div>
+          <button class="btn" id="avSendToWorkflowBtn" style="background:var(--green);">💾 Save &amp; Send to Workflow →</button>
+        </div>
+        <div class="wf-table-scroll">
+          <table class="wf-table">
+            <thead><tr><th>#</th><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Type</th></tr></thead>
+            <tbody id="avJsonPreviewBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- TAB: AI Chat -->
+  <div id="avtab-chat" style="flex:1;display:none;flex-direction:column;overflow:hidden;">
+    <div style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;" id="avChatMessages">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;font-size:11.5px;color:var(--text-dim);">
+        💬 Chat with NVIDIA Nemotron. You can upload an image in the Extract tab first, then ask follow-up questions here.
+      </div>
+    </div>
+    <div style="padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;">
+      <textarea id="avChatInput" placeholder="Ask a question about the image or extracted transactions…" style="flex:1;min-height:40px;max-height:120px;padding:8px 12px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);resize:none;outline:none;font-family:var(--sans);line-height:1.5;" rows="1"></textarea>
+      <button class="btn" id="avChatSendBtn">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAGE: OCR EXTRACTOR TOOL (kept for internal use, hidden from nav)
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-ocr" style="display:none;">
   <div class="page-header">
     <h1>🔍 OCR Extractor</h1>
     <span class="sub">Pure image-to-text extraction · No bank logic · No transaction parsing</span>
@@ -720,9 +825,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
         <div class="sb-label">Tesseract Status</div>
         <div id="ocrStatusBox" style="font-size:10.5px;line-height:1.6;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);">
           <div style="color:var(--muted);">Checking…</div>
-        </div>
-        <div style="margin-top:10px;font-size:10px;color:var(--muted);line-height:1.6;">
-          pdfplumber handles PDFs with a text layer directly (no Tesseract needed). Tesseract is only required for scanned images or image-only PDFs.
         </div>
       </div>
     </div>
@@ -879,6 +981,7 @@ function goPage(name) {
   if (name === "pnl")          loadPnl();
   if (name === "clients")      loadClients();
   if (name === "aicategorize") loadAiCategorizePage();
+  if (name === "aivision")    initAiVisionPage();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
   if (item.id === "chatToggleNav") return;
@@ -1339,8 +1442,72 @@ document.getElementById('workflowBtn').addEventListener('click', () => {
     goPage('approve');
     return;
   }
-  sendToWorkflow();
+  // ── Send to Workflow WITHOUT saving to DB ──
+  // Load transactions in-memory into the approve page directly
+  if (!allTxns.length) { alert('No transactions to send.'); return; }
+  wfTransactions = allTxns.map((t, i) => ({
+    id: null,
+    date: t.date || '',
+    description: t.description || '',
+    amount: t.amount || 0,
+    source_page: t.source_page || null,
+    category_id: null
+  }));
+  // Mark unsaved so downstream steps know to save first if needed
+  statementId = null;
+  activeStatementId = null;
+  unlockNav('approve');
+  markDone('parse');
+  loadApproveUnsaved();
+  goPage('approve');
 });
+
+function loadApproveUnsaved() {
+  // Render approve page from in-memory wfTransactions (not yet in DB)
+  document.getElementById('approveSub').textContent = 'Unsaved — transactions not yet committed to DB';
+  document.getElementById('approveBody').innerHTML = wfTransactions.map((t, i) => `
+    <tr>
+      <td><input type="text" value="${esc(t.date||'')}" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-family:var(--mono);font-size:11px;color:var(--text);padding:3px 6px;width:100px;" oninput="wfTransactions[${i}].date=this.value"/></td>
+      <td><input type="text" value="${esc(t.description||'')}" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-size:11.5px;color:var(--text);padding:3px 6px;width:100%;" oninput="wfTransactions[${i}].description=this.value"/></td>
+      <td style="color:var(--muted);font-size:11px;">${t.source_page||''}</td>
+      <td style="text-align:right;">
+        <input type="number" value="${t.amount}" step="0.01" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-family:var(--mono);font-size:11.5px;color:${t.amount>=0?'var(--green)':'var(--red)'};text-align:right;padding:3px 6px;width:100px;" oninput="wfTransactions[${i}].amount=parseFloat(this.value)||0"/>
+      </td>
+    </tr>`).join('');
+  // Override approveBtn to save first then proceed
+  document.getElementById('approveBtn').onclick = async function() {
+    if (!statementId) {
+      // Need to save now
+      const name = document.getElementById('stmtNameInput').value.trim() || parseMeta?.filename || 'Statement';
+      try {
+        const body = {
+          transactions: wfTransactions.map(t => ({
+            date: t.date, description: t.description, amount: t.amount,
+            source_page: t.source_page
+          })),
+          bank_id: parseMeta?.bank_id || 'unknown',
+          filename: parseMeta?.filename || '',
+          quarter_id: activeQuarterId || null,
+          statement_name: name
+        };
+        const r = await fetch('/api/statements', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const d = await r.json();
+        statementId = d.id;
+        activeStatementId = d.id;
+        updateSidebarCtx();
+        document.getElementById('sidebarFooter').textContent = `Stmt #${statementId} · ${wfTransactions.length} txns`;
+        if (activeQuarterId) { loadStatementsList(); loadSavedStatements(); }
+      } catch(e) { alert('Error saving statement: ' + e.message); return; }
+    } else {
+      await fetch(`/api/statements/${statementId}/approve`, { method:'POST' });
+    }
+    markDone('approve');
+    unlockNav('categorize');
+    goPage('categorize');
+    // Restore default approveBtn handler
+    document.getElementById('approveBtn').onclick = null;
+  };
+}
 
 async function sendToWorkflow(nameOverride) {
   try {
@@ -1533,11 +1700,11 @@ async function loadApprove() {
   wfTransactions = d;
   document.getElementById("approveBody").innerHTML = d.map(t => `
     <tr>
-      <td><input type="date" value="${esc(t.date||'')}" style="border:none;background:transparent;font-family:var(--mono);font-size:11px;color:var(--text);" onchange="patchTxn(${t.id},'date',this.value)"/></td>
-      <td><input type="text" value="${esc(t.description||'')}" style="border:none;background:transparent;font-size:11.5px;color:var(--text);width:100%;" onchange="patchTxn(${t.id},'description',this.value)"/></td>
+      <td><input type="text" value="${esc(t.date||'')}" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-family:var(--mono);font-size:11px;color:var(--text);padding:3px 6px;width:105px;" onchange="patchTxn(${t.id},'date',this.value)"/></td>
+      <td><input type="text" value="${esc(t.description||'')}" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-size:11.5px;color:var(--text);padding:3px 6px;width:100%;" onchange="patchTxn(${t.id},'description',this.value)"/></td>
       <td style="color:var(--muted);font-size:11px;">${t.source_page||''}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:11.5px;" class="${t.amount>0?'td-amt pos':'td-amt neg'}">
-        <input type="number" value="${t.amount}" step="0.01" style="border:none;background:transparent;font-family:var(--mono);font-size:11.5px;color:inherit;text-align:right;width:100px;" onchange="patchTxn(${t.id},'amount',parseFloat(this.value))"/>
+        <input type="number" value="${t.amount}" step="0.01" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-family:var(--mono);font-size:11.5px;color:inherit;text-align:right;padding:3px 6px;width:100px;" onchange="patchTxn(${t.id},'amount',parseFloat(this.value))"/>
       </td>
     </tr>`).join("");
 }
@@ -2053,6 +2220,327 @@ loadClients();
       importBtn.textContent = 'Import Transactions';
     }
   });
+})();
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// AI VISION PAGE — NVIDIA Nemotron Multimodal
+// ══════════════════════════════════════════════════════════════════════════
+(function() {
+  let avImageB64 = null;
+  let avImageMime = 'image/png';
+  let avChatHistory = [];
+  let avParsedTxns = [];
+  let avInited = false;
+
+  // ── Sub-tab switching ──
+  function switchAvTab(name) {
+    document.querySelectorAll('.av-tab').forEach(t => {
+      const active = t.dataset.avtab === name;
+      t.style.color = active ? 'var(--accent)' : 'var(--muted)';
+      t.style.fontWeight = active ? '700' : '600';
+      t.style.borderBottom = active ? '2px solid var(--accent)' : '2px solid transparent';
+    });
+    ['extract','json','chat'].forEach(n => {
+      const el = document.getElementById('avtab-' + n);
+      if (el) el.style.display = n === name ? 'flex' : 'none';
+    });
+  }
+
+  document.querySelectorAll('.av-tab').forEach(t => {
+    t.addEventListener('click', () => switchAvTab(t.dataset.avtab));
+  });
+
+  // ── File upload ──
+  const avDropZone   = document.getElementById('avDropZone');
+  const avFileInput  = document.getElementById('avFileInput');
+  const avFileChosen = document.getElementById('avFileChosen');
+  const avFileName   = document.getElementById('avFileName');
+  const avRemoveFile = document.getElementById('avRemoveFile');
+  const avRunBtn     = document.getElementById('avRunBtn');
+  const avPreview    = document.getElementById('avPreviewSection');
+  const avPreviewImg = document.getElementById('avPreviewImg');
+
+  function setAvFile(f) {
+    if (!f) return;
+    avFileName.textContent = f.name;
+    avFileChosen.style.display = 'flex';
+    avDropZone.style.display = 'none';
+    avRunBtn.disabled = false;
+    // Preview + read b64
+    const reader = new FileReader();
+    reader.onload = e => {
+      const dataUrl = e.target.result;
+      avImageB64 = dataUrl.split(',')[1];
+      avImageMime = f.type || 'image/png';
+      avPreviewImg.src = dataUrl;
+      avPreview.style.display = 'block';
+    };
+    reader.readAsDataURL(f);
+  }
+  function clearAvFile() {
+    avImageB64 = null;
+    avFileChosen.style.display = 'none';
+    avDropZone.style.display = '';
+    avPreview.style.display = 'none';
+    avRunBtn.disabled = true;
+    avFileInput.value = '';
+  }
+
+  if (avDropZone) {
+    avDropZone.addEventListener('click', () => avFileInput.click());
+    avDropZone.addEventListener('dragover', e => { e.preventDefault(); avDropZone.style.background='var(--accent-lo)'; });
+    avDropZone.addEventListener('dragleave', () => { avDropZone.style.background=''; });
+    avDropZone.addEventListener('drop', e => {
+      e.preventDefault(); avDropZone.style.background='';
+      if (e.dataTransfer.files[0]) setAvFile(e.dataTransfer.files[0]);
+    });
+    avFileInput.addEventListener('change', e => { if (e.target.files[0]) setAvFile(e.target.files[0]); });
+    avRemoveFile.addEventListener('click', clearAvFile);
+  }
+
+  // ── Run AI extraction ──
+  const avResponseBox  = document.getElementById('avResponseBox');
+  const avThinking     = document.getElementById('avThinking');
+  const avError        = document.getElementById('avError');
+  const avCopyResponse = document.getElementById('avCopyResponse');
+  const avSendToJson   = document.getElementById('avSendToJson');
+  const avBtnText      = document.getElementById('avBtnText');
+  const avSpinner      = document.getElementById('avSpinner');
+
+  if (avRunBtn) {
+    avRunBtn.addEventListener('click', async () => {
+      if (!avImageB64) { avError.textContent='Upload an image first.'; avError.style.display=''; return; }
+      avError.style.display='none';
+      avRunBtn.disabled=true; avSpinner.style.display='block'; avBtnText.textContent='Extracting…';
+      avResponseBox.value=''; avThinking.textContent=''; avThinking.style.display='none';
+      avCopyResponse.style.display='none'; avSendToJson.style.display='none';
+
+      const prompt = document.getElementById('avPrompt').value.trim();
+      const newMsg = { role:'user', content: prompt };
+      // Add to chat history for continuity
+      avChatHistory = [...avChatHistory, newMsg];
+
+      try {
+        const resp = await fetch('/tools/ocr/nvidia/chat', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            messages: avChatHistory,
+            image_b64: avImageB64,
+            image_mime: avImageMime
+          })
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${resp.status}`);
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let fullContent = ''; let thinkingContent = '';
+        while(true) {
+          const {done, value} = await reader.read();
+          if(done) break;
+          const text = decoder.decode(value);
+          const lines = text.split('\n');
+          for(const line of lines) {
+            if(!line.startsWith('data: ') || line === 'data: [DONE]') continue;
+            try {
+              const chunk = JSON.parse(line.slice(6));
+              const delta = chunk.choices?.[0]?.delta || {};
+              if(delta.reasoning) {
+                thinkingContent += delta.content.slice(1); // strip zero-width space
+                avThinking.textContent = thinkingContent;
+                avThinking.style.display='block';
+              } else if(delta.content) {
+                fullContent += delta.content;
+                avResponseBox.value = fullContent;
+              }
+            } catch(e) {}
+          }
+        }
+        avChatHistory.push({role:'assistant', content: fullContent});
+        avCopyResponse.style.display='';
+        avSendToJson.style.display='';
+        // Auto-populate JSON tab if it looks like JSON
+        const trimmed = fullContent.trim();
+        if(trimmed.startsWith('[') || trimmed.startsWith('{')) {
+          document.getElementById('avJsonInput').value = trimmed;
+        }
+      } catch(e) {
+        avError.textContent = '⚠ ' + e.message;
+        avError.style.display='';
+      } finally {
+        avRunBtn.disabled=false; avSpinner.style.display='none'; avBtnText.textContent='Extract with AI';
+      }
+    });
+  }
+
+  if (avCopyResponse) avCopyResponse.addEventListener('click', () => navigator.clipboard.writeText(avResponseBox.value));
+  if (avSendToJson) avSendToJson.addEventListener('click', () => {
+    document.getElementById('avJsonInput').value = avResponseBox.value;
+    switchAvTab('json');
+  });
+
+  // ── JSON Tab ──
+  const avJsonInput   = document.getElementById('avJsonInput');
+  const avParseJsonBtn = document.getElementById('avParseJsonBtn');
+  const avJsonError   = document.getElementById('avJsonError');
+
+  if (avParseJsonBtn) {
+    avParseJsonBtn.addEventListener('click', () => {
+      const raw = (avJsonInput.value || '').trim();
+      avJsonError.style.display='none';
+      if(!raw) { avJsonError.textContent='Paste a JSON array first.'; avJsonError.style.display=''; return; }
+
+      let parsed;
+      try {
+        // Try to extract JSON array even if wrapped in markdown
+        const match = raw.match(/\[.*\]/s) || raw.match(/\{.*\}/s);
+        const cleanRaw = match ? match[0] : raw;
+        parsed = JSON.parse(cleanRaw);
+        if(!Array.isArray(parsed)) parsed = [parsed];
+      } catch(e) {
+        avJsonError.textContent = '⚠ Invalid JSON: ' + e.message;
+        avJsonError.style.display='';
+        return;
+      }
+
+      // Normalise fields
+      avParsedTxns = parsed.map((item, i) => {
+        const dateVal = item.date || item.Date || item.trans_date || item.transaction_date || '';
+        const descVal = item.description || item.Description || item.narrative || item.Narrative || item.details || item.memo || '';
+        const amtRaw  = item.amount ?? item.Amount ?? item.debit ?? item.credit ?? 0;
+        const amt     = typeof amtRaw === 'number' ? amtRaw : parseFloat(String(amtRaw).replace(/[^\d.\-]/g,'')) || 0;
+        return { date: dateVal, description: descVal, amount: amt, source_page: null };
+      }).filter(t => t.description || t.amount);
+
+      if(!avParsedTxns.length) {
+        avJsonError.textContent='No valid transactions found in JSON. Ensure each object has date, description, amount fields.';
+        avJsonError.style.display='';
+        return;
+      }
+
+      // Render preview
+      document.getElementById('avJsonCount').textContent = `${avParsedTxns.length} transactions found`;
+      document.getElementById('avJsonPreviewBody').innerHTML = avParsedTxns.map((t, i) => `
+        <tr>
+          <td style="font-size:10px;color:var(--muted);">${i+1}</td>
+          <td><input type="text" value="${esc(t.date)}" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-family:var(--mono);font-size:11px;padding:2px 5px;width:105px;" oninput="avParsedTxns[${i}].date=this.value"/></td>
+          <td><input type="text" value="${esc(t.description)}" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-size:11px;padding:2px 5px;width:100%;" oninput="avParsedTxns[${i}].description=this.value"/></td>
+          <td style="text-align:right;"><input type="number" value="${t.amount}" step="0.01" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-family:var(--mono);font-size:11px;padding:2px 5px;text-align:right;width:90px;color:${t.amount>=0?'var(--green)':'var(--red)'};" oninput="avParsedTxns[${i}].amount=parseFloat(this.value)||0"/></td>
+          <td><span class="badge ${t.amount>=0?'cr':'dr'}">${t.amount>=0?'CR':'DR'}</span></td>
+        </tr>`).join('');
+      document.getElementById('avJsonPreviewSection').style.display='block';
+    });
+  }
+
+  document.getElementById('avClearJsonBtn')?.addEventListener('click', () => {
+    if(avJsonInput) avJsonInput.value='';
+    document.getElementById('avJsonPreviewSection').style.display='none';
+    avParsedTxns=[];
+  });
+
+  document.getElementById('avSendToWorkflowBtn')?.addEventListener('click', async () => {
+    if(!avParsedTxns.length) return;
+    const btn = document.getElementById('avSendToWorkflowBtn');
+    btn.disabled=true; btn.textContent='Saving…';
+    try {
+      const name = document.getElementById('stmtNameInput').value.trim() || 'AI Vision Import';
+      const body = {
+        transactions: avParsedTxns,
+        bank_id: 'ai-vision',
+        filename: name,
+        quarter_id: activeQuarterId || null,
+        statement_name: name
+      };
+      const r = await fetch('/api/statements', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      const d = await r.json();
+      statementId = d.id;
+      activeStatementId = d.id;
+      updateSidebarCtx();
+      unlockNav('approve','categorize','gst','pnl','aicategorize');
+      markDone('parse');
+      document.getElementById('sidebarFooter').textContent = `Stmt #${statementId} · ${avParsedTxns.length} txns`;
+      if(activeQuarterId) { loadStatementsList(); loadSavedStatements(); }
+      goPage('approve');
+    } catch(e) { alert('Error saving statement: ' + e.message); }
+    finally { btn.disabled=false; btn.textContent='💾 Save & Send to Workflow →'; }
+  });
+
+  // ── AI Chat Tab ──
+  const avChatMessages = document.getElementById('avChatMessages');
+  const avChatInput    = document.getElementById('avChatInput');
+  const avChatSendBtn  = document.getElementById('avChatSendBtn');
+
+  function appendChatMsg(role, text) {
+    const isUser = role === 'user';
+    const div = document.createElement('div');
+    div.style.cssText = `background:${isUser?'var(--accent-lo)':'var(--surface)'};border:1px solid ${isUser?'rgba(37,99,235,.2)':'var(--border)'};border-radius:10px;padding:10px 14px;font-size:11.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word;`;
+    div.textContent = (isUser ? '👤 ' : '🤖 ') + text;
+    avChatMessages.appendChild(div);
+    avChatMessages.scrollTop = avChatMessages.scrollHeight;
+    return div;
+  }
+
+  async function sendChat() {
+    const text = avChatInput.value.trim();
+    if(!text) return;
+    avChatInput.value='';
+    appendChatMsg('user', text);
+
+    const newMsg = { role:'user', content: text };
+    avChatHistory.push(newMsg);
+
+    const aiDiv = appendChatMsg('assistant', '…');
+    avChatSendBtn.disabled=true;
+
+    try {
+      const resp = await fetch('/tools/ocr/nvidia/chat', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          messages: avChatHistory,
+          image_b64: avImageB64,
+          image_mime: avImageMime
+        })
+      });
+      if(!resp.ok) { const e=await resp.json().catch(()=>{}); throw new Error(e?.error||'API error'); }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let full='';
+      while(true) {
+        const {done, value} = await reader.read();
+        if(done) break;
+        const lines = decoder.decode(value).split('\n');
+        for(const line of lines) {
+          if(!line.startsWith('data: ') || line==='data: [DONE]') continue;
+          try {
+            const chunk = JSON.parse(line.slice(6));
+            const delta = chunk.choices?.[0]?.delta || {};
+            if(delta.content && !delta.reasoning) { full += delta.content; aiDiv.textContent='🤖 '+full; }
+          } catch(e){}
+        }
+      }
+      avChatHistory.push({role:'assistant', content: full});
+    } catch(e) {
+      aiDiv.textContent = '🤖 ⚠ ' + e.message;
+    } finally { avChatSendBtn.disabled=false; }
+  }
+
+  if(avChatSendBtn) avChatSendBtn.addEventListener('click', sendChat);
+  if(avChatInput) avChatInput.addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+
+  // ── Page init ──
+  window.initAiVisionPage = function() {
+    if(!avInited) {
+      avInited = true;
+      switchAvTab('extract');
+    }
+  };
+
+  // Make avParsedTxns accessible globally for inline oninput handlers
+  window.avParsedTxns = avParsedTxns;
 })();
 
 </script>

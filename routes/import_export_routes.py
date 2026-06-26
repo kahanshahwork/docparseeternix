@@ -3,6 +3,7 @@ import_export_routes.py
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Handles:
   POST /api/import/csv              — import CSV or Excel → statement + transactions
+  POST /api/statements/import-csv  — alias (same handler, JS-friendly URL)
   GET  /api/statements/<id>/export/gst  — download GST summary as .xlsx
   GET  /api/statements/<id>/export/pnl  — download P&L as .xlsx
 """
@@ -36,20 +37,67 @@ def _parse_money(s):
         return None
 
 
+# Flexible header aliases — covers many real-world bank export formats
+_DATE_KEYS = [
+    "Date", "date", "DATE",
+    "Trans Date", "Transaction Date", "Trans. Date", "Txn Date",
+    "Value Date", "Settlement Date", "Posting Date",
+]
+_DESC_KEYS = [
+    "Description", "description", "DESCRIPTION",
+    "Descriptions",  # typo variant
+    "Narrative", "narrative", "NARRATIVE",
+    "Narration", "narration", "NARRATION",
+    "Details", "details", "DETAILS",
+    "Transaction Details", "Transaction Description",
+    "Particulars", "particulars", "PARTICULARS",
+    "Memo", "memo", "MEMO",
+    "Reference", "reference", "REFERENCE",
+    "Remarks", "remarks",
+    "Transaction Remarks", "Transaction Reference",
+    "Info", "Additional Info",
+    "Payee", "Payee/Description",
+]
+_DEBIT_KEYS = [
+    "Debit", "debit", "DEBIT",
+    "Withdrawals", "Withdrawal", "DR", "Dr",
+    "Money Out", "Debit Amount", "Paid Out",
+    "Cheques", "Cheque",
+]
+_CREDIT_KEYS = [
+    "Credit", "credit", "CREDIT",
+    "Deposits", "Deposit", "CR", "Cr",
+    "Money In", "Credit Amount", "Paid In",
+    "Receipts",
+]
+_AMOUNT_KEYS = [
+    "Amount", "amount", "AMOUNT",
+    "Net Amount", "Transaction Amount", "Value",
+]
+
+
+def _get_field(raw, keys):
+    """Try a list of key aliases against a row dict, return first match."""
+    for k in keys:
+        v = raw.get(k)
+        if v is not None and str(v).strip() not in ("", "None"):
+            return str(v).strip()
+    # Case-insensitive fallback
+    raw_lower = {k2.lower().strip(): v2 for k2, v2 in raw.items()}
+    for k in keys:
+        v = raw_lower.get(k.lower().strip())
+        if v is not None and str(v).strip() not in ("", "None"):
+            return str(v).strip()
+    return ""
+
+
 def _normalise_row(raw, idx):
     """Convert a dict from CSV/Excel → canonical transaction dict."""
-    def _get(*keys):
-        for k in keys:
-            v = raw.get(k) or raw.get(k.lower()) or raw.get(k.upper())
-            if v is not None and str(v).strip():
-                return str(v).strip()
-        return ""
-
-    date        = _get("Date", "date", "DATE", "Trans Date", "Transaction Date")
-    description = _get("Description", "Narration", "Details", "Particulars", "Memo")
-    debit_raw   = _get("Debit", "debit", "DEBIT", "Withdrawals", "DR")
-    credit_raw  = _get("Credit", "credit", "CREDIT", "Deposits", "CR")
-    amount_raw  = _get("Amount", "amount", "AMOUNT")
+    date        = _get_field(raw, _DATE_KEYS)
+    description = _get_field(raw, _DESC_KEYS)
+    debit_raw   = _get_field(raw, _DEBIT_KEYS)
+    credit_raw  = _get_field(raw, _CREDIT_KEYS)
+    amount_raw  = _get_field(raw, _AMOUNT_KEYS)
 
     if debit_raw or credit_raw:
         debit_val  = _parse_money(debit_raw)
@@ -75,8 +123,24 @@ def _normalise_row(raw, idx):
 
 def _read_csv(file_bytes, filename):
     """Parse CSV bytes → list of row dicts."""
-    text = file_bytes.decode("utf-8-sig", errors="replace")
-    reader = csv.DictReader(io.StringIO(text))
+    # Try UTF-8-sig first (Excel CSV), then latin-1 fallback
+    for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+        try:
+            text = file_bytes.decode(enc, errors="strict")
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    else:
+        text = file_bytes.decode("utf-8", errors="replace")
+
+    # Sniff delimiter
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",\t|;")
+    except csv.Error:
+        dialect = csv.excel
+
+    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
     return [dict(row) for row in reader]
 
 
@@ -91,9 +155,16 @@ def _read_excel(file_bytes):
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
         return []
-    headers = [str(h).strip() if h else f"col{i}" for i, h in enumerate(rows[0])]
+    # Find the header row — skip blank/logo rows at the top
+    header_row_idx = 0
+    for i, row in enumerate(rows):
+        non_empty = [v for v in row if v is not None and str(v).strip()]
+        if len(non_empty) >= 2:
+            header_row_idx = i
+            break
+    headers = [str(h).strip() if h is not None else f"col{i}" for i, h in enumerate(rows[header_row_idx])]
     result = []
-    for row in rows[1:]:
+    for row in rows[header_row_idx + 1:]:
         if all(v is None for v in row):
             continue
         result.append({headers[i]: (str(v).strip() if v is not None else "") for i, v in enumerate(row)})
@@ -102,57 +173,92 @@ def _read_excel(file_bytes):
 
 # ── CSV / Excel import ───────────────────────────────────────────────────────
 
-@ie_bp.route("/import/csv", methods=["POST"])
-def import_csv():
-    f = request.files.get("file")
-    if not f:
-        return jsonify({"error": "No file uploaded"}), 400
-
-    filename = f.filename or "import"
-    ext      = filename.rsplit(".", 1)[-1].lower()
+def _do_import(f, client_id=None, quarter_id=None, name=None):
+    """Shared import logic. Returns (statement_id, transactions) or raises."""
+    filename  = f.filename or "import"
+    ext       = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     raw_bytes = f.read()
 
-    try:
-        if ext == "csv":
-            raw_rows = _read_csv(raw_bytes, filename)
-        elif ext in ("xlsx", "xls"):
-            raw_rows = _read_excel(raw_bytes)
-        else:
-            return jsonify({"error": f"Unsupported file type: .{ext}"}), 400
-    except Exception as e:
-        return jsonify({"error": f"Could not read file: {e}"}), 400
+    if ext == "csv":
+        raw_rows = _read_csv(raw_bytes, filename)
+    elif ext in ("xlsx", "xls"):
+        raw_rows = _read_excel(raw_bytes)
+    else:
+        raise ValueError(f"Unsupported file type: .{ext}. Upload a .csv or .xlsx file.")
 
     if not raw_rows:
-        return jsonify({"error": "File appears empty — no rows found"}), 400
+        raise ValueError("File appears empty — no rows found.")
 
     txns = [_normalise_row(r, i) for i, r in enumerate(raw_rows)]
     txns = [t for t in txns if t["description"] or t["amount"]]
 
     if not txns:
-        return jsonify({"error": "No valid transactions found. Check column names (Date, Description, Debit/Credit or Amount)."}), 400
+        raise ValueError(
+            "No valid transactions found. "
+            "Check column names — expected: Date + Description + (Debit/Credit or Amount). "
+            f"Columns found: {list(raw_rows[0].keys()) if raw_rows else 'none'}"
+        )
 
-    # Persist to DB as a new statement
-    conn = get_db()
-    stmt_name = filename.rsplit(".", 1)[0]
+    # Persist to DB
+    conn      = get_db()
+    stmt_name = name or filename.rsplit(".", 1)[0]
     cur = conn.execute(
-        "INSERT INTO statements (name, bank_id, filename, status, created_at) VALUES (?,?,?,?,?)",
-        (stmt_name, "csv-import", filename, "parsed", datetime.utcnow().isoformat())
+        "INSERT INTO statements (statement_name, bank_id, filename, status, quarter_id, created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (stmt_name, "csv-import", filename, "parsed",
+         quarter_id, datetime.utcnow().isoformat())
     )
     sid = cur.lastrowid
     for t in txns:
         conn.execute(
-            "INSERT INTO transactions (statement_id, date, description, amount, source_page) VALUES (?,?,?,?,?)",
+            "INSERT INTO transactions (statement_id, date, description, amount, source_page) "
+            "VALUES (?,?,?,?,?)",
             (sid, t["date"], t["description"], t["amount"], t["source_page"])
         )
     conn.commit()
     log_audit("statement", sid, "csv_import")
 
-    # Return transactions with IDs for the frontend
     rows = [dict(r) for r in conn.execute(
         "SELECT * FROM transactions WHERE statement_id = ? ORDER BY id", (sid,)
     ).fetchall()]
 
-    return jsonify({"statement_id": sid, "transactions": rows})
+    return sid, rows
+
+
+@ie_bp.route("/import/csv", methods=["POST"])
+def import_csv():
+    """Original URL: /api/import/csv"""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file uploaded"}), 400
+    client_id  = request.form.get("client_id")
+    quarter_id = request.form.get("quarter_id")
+    name       = request.form.get("name")
+    try:
+        sid, rows = _do_import(f, client_id, quarter_id, name)
+        return jsonify({"statement_id": sid, "transactions": rows})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Could not read file: {e}"}), 400
+
+
+@ie_bp.route("/statements/import-csv", methods=["POST"])
+def import_csv_alias():
+    """JS-friendly alias: /api/statements/import-csv"""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file uploaded"}), 400
+    client_id  = request.form.get("client_id")
+    quarter_id = request.form.get("quarter_id")
+    name       = request.form.get("name")
+    try:
+        sid, rows = _do_import(f, client_id, quarter_id, name)
+        return jsonify({"statement_id": sid, "transactions": rows})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"Could not read file: {e}"}), 400
 
 
 # ── GST Excel export ─────────────────────────────────────────────────────────
