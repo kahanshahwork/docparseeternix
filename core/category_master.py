@@ -92,8 +92,10 @@ def seed_categories():
     """
     conn = get_db()
     # Null out any transaction references so FK constraints don't block deletion
+    conn.execute("PRAGMA foreign_keys = OFF")
     conn.execute("UPDATE transactions SET category_id = NULL, gst_amount = 0, net_amount = amount WHERE category_id IS NOT NULL")
     conn.execute("DELETE FROM categories")
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executemany(
         """INSERT INTO categories (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
            VALUES (?,?,?,?,?,?,?)""",
