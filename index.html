@@ -1692,7 +1692,7 @@ async function categorizeTxn(id, catId) {
   await fetch(`/api/statements/${statementId}/categorize`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({transaction_id: id, category_id: catId ? parseInt(catId) : null})
+    body: JSON.stringify({transaction_ids: [id], category_id: catId ? parseInt(catId) : null})
   });
   // Keep wfTransactions in sync so progress count and grouped view stay accurate
   const t = wfTransactions.find(t => t.id === id);
@@ -1789,7 +1789,7 @@ async function categorizeTxnInGroup(txnId, catId, gi) {
   await fetch(`/api/statements/${statementId}/categorize`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({transaction_id: txnId, category_id: catId ? parseInt(catId) : null})
+    body: JSON.stringify({transaction_ids: [txnId], category_id: catId ? parseInt(catId) : null})
   });
   // Update wfTransactions in memory
   const t = wfTransactions.find(t => t.id === txnId);
@@ -1806,11 +1806,20 @@ async function categorizeTxnInGroup(txnId, catId, gi) {
 }
 
 async function categorizeGroup(groupKey, catId, gi) {
-  // Save group-level category to DB (applies to all txns in group)
-  await fetch(`/api/statements/${statementId}/categorize/group`, {
+  if (!catId) return; // no category selected — ignore
+  // Collect all transaction IDs in this group from the last groups response
+  // We fetch fresh groups to get the current transaction IDs for this group_key
+  const r = await fetch(`/api/statements/${statementId}/groups`).then(r=>r.json());
+  const allGrps = [...(r.debit||[]), ...(r.credit||[])];
+  const grp = allGrps.find(g => g.group_key === groupKey);
+  if (!grp || !grp.transactions?.length) return;
+  const tids = grp.transactions.map(t => t.id);
+
+  // Bulk categorize all txns in this group using the real /categorize endpoint
+  await fetch(`/api/statements/${statementId}/categorize`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({group_key: groupKey, category_id: catId ? parseInt(catId) : null})
+    body: JSON.stringify({transaction_ids: tids, category_id: parseInt(catId)})
   });
   // Reload wfTransactions and grouped view
   const txnR = await fetch(`/api/statements/${statementId}/transactions`).then(r=>r.json());
@@ -1838,23 +1847,37 @@ async function loadGst() {
   if (!statementId) return;
   const d = await fetch(`/api/statements/${statementId}/gst`).then(r=>r.json());
 
+  // Backend returns { transactions:[...], summary:{ bas:{...}, by_category:[...] } }
+  const bas      = d.summary?.bas || d.bas || {};
+  const byCat    = d.summary?.by_category || d.by_category || [];
+
   // BAS grid
   const basFields = [
-    {key:'G1', label:'G1 – Total sales'}, {key:'G10', label:'G10 – Capital purchases'},
-    {key:'G11', label:'G11 – Non-capital purchases'}, {key:'1A', label:'1A – GST on sales'},
-    {key:'1B', label:'1B – GST on purchases'}, {key:'net', label:'Net GST Payable'}
+    {key:'G1',  label:'G1 – Total sales'},
+    {key:'G10', label:'G10 – Capital purchases'},
+    {key:'G11', label:'G11 – Non-capital purchases'},
+    {key:'1A',  label:'1A – GST on sales'},
+    {key:'1B',  label:'1B – GST on purchases'},
+    {key:'net_gst_payable', label:'Net GST Payable'}
   ];
   document.getElementById('gstBasGrid').innerHTML = basFields.map(f => `
-    <div class="gst-tile"><div class="gst-tile gk">${esc(f.key)}</div><div class="gv">${fmt(d.bas?.[f.key] || 0)}</div><div class="gl">${esc(f.label.split('–')[1]||f.label)}</div></div>`).join('');
+    <div class="gst-tile"><div class="gst-tile gk">${esc(f.key==='net_gst_payable'?'NET':f.key)}</div><div class="gv">${fmt(bas[f.key] || 0)}</div><div class="gl">${esc(f.label.split('–')[1]?.trim()||f.label)}</div></div>`).join('');
 
-  const net = (d.bas?.['1A']||0) - (d.bas?.['1B']||0);
+  const net = (bas['1A']||0) - (bas['1B']||0);
   document.getElementById('gstNetPanel').style.background = net >= 0 ? 'var(--red-lo)' : 'var(--green-lo)';
   document.getElementById('gstNetPanel').innerHTML = `<span style="font-size:13px;font-weight:700;">Net GST ${net>=0?'Payable':'Refundable'}</span><span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${net>=0?'var(--red)':'var(--green)'};">${fmt(Math.abs(net))}</span>`;
 
-  // Category table
-  document.getElementById('gstCategoryBody').innerHTML = (d.by_category||[]).map(c => `
-    <tr><td>${esc(c.category_name)}</td><td>${esc(c.pnl_group)}</td><td><span class="badge cr">${esc(c.bas_label||'—')}</span></td>
-    <td style="text-align:right">${fmt(c.gross)}</td><td style="text-align:right">${fmt(c.gst)}</td><td style="text-align:right">${fmt(c.net)}</td><td style="text-align:right">${c.count}</td></tr>`).join('');
+  // Category table — backend returns field "category" not "category_name"
+  document.getElementById('gstCategoryBody').innerHTML = byCat.map(c => `
+    <tr>
+      <td>${esc(c.category || c.category_name || '—')}</td>
+      <td>${esc(c.pnl_group||'—')}</td>
+      <td><span class="badge cr">${esc(c.bas_label||'—')}</span></td>
+      <td style="text-align:right">${fmt(c.gross)}</td>
+      <td style="text-align:right">${fmt(c.gst)}</td>
+      <td style="text-align:right">${fmt(c.net)}</td>
+      <td style="text-align:right">${c.count}</td>
+    </tr>`).join('');
 
   // Txn detail
   document.getElementById('gstBody').innerHTML = (d.transactions||[]).map(t => `
