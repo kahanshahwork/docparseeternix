@@ -24,11 +24,13 @@ ie_bp = Blueprint("import_export", __name__, url_prefix="/api")
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 def _parse_money(s):
-    """Convert '$-1,650.00' / '-1650' / '' → float or None."""
+    """Convert '$-1,650.00' / '-1650' / '' / float → float or None."""
     if s is None:
         return None
+    if isinstance(s, (int, float)):
+        return float(s)
     s = str(s).strip()
-    if not s or s in ("-", "—"):
+    if not s or s in ("-", "—", "N/A", "n/a"):
         return None
     s = re.sub(r"[^\d.\-]", "", s)
     try:

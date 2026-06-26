@@ -2274,7 +2274,6 @@ loadClients();
 // CSV / EXCEL IMPORT
 // ══════════════════════════════════════════════════════════════════════════
 (function() {
-  // ── Elements ──
   const dropZone       = document.getElementById('csvDropZone');
   const fileInput      = document.getElementById('csvFileInput');
   const fileChosen     = document.getElementById('csvFileChosen');
@@ -2288,17 +2287,33 @@ loadClients();
   const mappingRows    = document.getElementById('csvMappingRows');
   const errorDiv       = document.getElementById('csvImportError');
   let csvFile = null;
+  let csvHeaders = [];
 
-  // System fields the user must map
+  // Only 3 system fields — Date, Description, Amount
   const SYSTEM_FIELDS = [
     { key: 'date',        label: 'Date',        required: true  },
     { key: 'description', label: 'Description', required: true  },
-    { key: 'amount',      label: 'Amount (single column)',      required: false },
-    { key: 'debit',       label: 'Debit (money out column)',    required: false },
-    { key: 'credit',      label: 'Credit (money in column)',    required: false },
+    { key: 'amount',      label: 'Amount',       required: false },
+    { key: 'debit',       label: 'Debit (−)',    required: false },
+    { key: 'credit',      label: 'Credit (+)',   required: false },
   ];
 
-  // ── File handling ──
+  const aliases = {
+    date:        ['date','trans date','transaction date','txn date','value date','posting date','settlement date'],
+    description: ['description','narrative','narration','details','particulars','memo','reference','remarks','payee','transaction details'],
+    amount:      ['amount','net amount','transaction amount','value'],
+    debit:       ['debit','withdrawal','withdrawals','dr','money out','debit amount','paid out','cheques'],
+    credit:      ['credit','deposit','deposits','cr','money in','credit amount','paid in','receipts'],
+  };
+
+  function autoDetect(fieldKey, headers) {
+    const al = aliases[fieldKey] || [];
+    for (const h of headers) {
+      if (al.includes(h.toLowerCase().trim())) return h;
+    }
+    return '';
+  }
+
   function setFile(f) {
     csvFile = f;
     fileLabel.textContent = f.name;
@@ -2308,7 +2323,7 @@ loadClients();
     errorDiv.style.display = 'none';
   }
   function clearFile() {
-    csvFile = null;
+    csvFile = null; csvHeaders = [];
     fileChosen.style.display = 'none';
     dropZone.style.display = '';
     readHeadersBtn.disabled = true;
@@ -2321,15 +2336,15 @@ loadClients();
   dropZone.addEventListener('click',   () => fileInput.click());
   removeBtn.addEventListener('click',  clearFile);
   fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
-  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.background = 'var(--accent-lo)'; });
-  dropZone.addEventListener('dragleave', () => { dropZone.style.background = ''; });
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.background='var(--accent-lo)'; });
+  dropZone.addEventListener('dragleave', () => { dropZone.style.background=''; });
   dropZone.addEventListener('drop', e => {
-    e.preventDefault(); dropZone.style.background = '';
+    e.preventDefault(); dropZone.style.background='';
     const f = e.dataTransfer.files[0];
     if (f && /\.(csv|xlsx|xls)$/i.test(f.name)) setFile(f);
   });
 
-  // ── Step 1: Read Headers ──
+  // Step 1: Read headers
   readHeadersBtn.addEventListener('click', async () => {
     if (!csvFile) return;
     readHeadersBtn.disabled = true;
@@ -2342,6 +2357,7 @@ loadClients();
       const d = await r.json();
       if (!r.ok || d.error) throw new Error(d.error || 'Could not read file');
       if (!d.headers.length) throw new Error('No columns found in file');
+      csvHeaders = d.headers;
       showMappingUI(d.headers, d.sample || []);
     } catch(e) {
       errorDiv.textContent = '⚠ ' + e.message;
@@ -2352,51 +2368,64 @@ loadClients();
     }
   });
 
-  // ── Step 2: Mapping UI ──
+  // Step 2: Show mapping UI — clean side-by-side table
   function showMappingUI(headers, sample) {
     const noneOpt = '<option value="">— skip —</option>';
-    const opts = noneOpt + headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`).join('');
+    const headerOpts = noneOpt + headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`).join('');
 
-    // Auto-detect best match for each field using alias lists
-    const aliases = {
-      date:        ['date','trans date','transaction date','txn date','value date','posting date'],
-      description: ['description','narrative','narration','details','particulars','memo','reference','remarks','payee'],
-      amount:      ['amount','net amount','transaction amount','value'],
-      debit:       ['debit','withdrawal','dr','money out','debit amount','paid out'],
-      credit:      ['credit','deposit','cr','money in','credit amount','paid in'],
-    };
-    function autoDetect(fieldKey, headers) {
-      const al = aliases[fieldKey] || [];
-      for (const h of headers) {
-        if (al.includes(h.toLowerCase().trim())) return h;
-      }
-      return '';
-    }
+    // Show sample values for each header
+    const sampleRow = sample[0] || {};
 
-    mappingRows.innerHTML = SYSTEM_FIELDS.map(f => {
-      const auto = autoDetect(f.key, headers);
-      const selectedOpts = opts.replace(`value="${auto}"`, `value="${auto}" selected`);
-      return `<div style="display:flex;flex-direction:column;gap:2px;">
-        <label style="font-size:10px;font-weight:700;color:var(--text-dim);">
-          ${f.label}${f.required ? ' <span style="color:var(--red);">*</span>' : ''}
-        </label>
-        <select id="csvMap_${f.key}" style="border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:11px;background:var(--surface);color:var(--text);">
-          ${selectedOpts}
-        </select>
-      </div>`;
-    }).join('');
+    mappingRows.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead>
+          <tr style="background:var(--surface3);">
+            <th style="padding:5px 8px;text-align:left;font-weight:700;color:var(--text-dim);border-bottom:1px solid var(--border);">System Field</th>
+            <th style="padding:5px 8px;text-align:left;font-weight:700;color:var(--text-dim);border-bottom:1px solid var(--border);">Your Column</th>
+            <th style="padding:5px 8px;text-align:left;font-weight:700;color:var(--text-dim);border-bottom:1px solid var(--border);">Sample Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${SYSTEM_FIELDS.map(f => {
+            const auto = autoDetect(f.key, headers);
+            const opts = headerOpts.replace(`value="${auto}"`, `value="${auto}" selected`);
+            const sampleVal = auto ? (sampleRow[auto] || '—') : '—';
+            return `<tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:6px 8px;font-weight:600;white-space:nowrap;">
+                ${f.label}${f.required ? ' <span style="color:var(--red)">*</span>' : ''}
+              </td>
+              <td style="padding:4px 8px;">
+                <select id="csvMap_${f.key}"
+                  style="width:100%;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);"
+                  onchange="updateSampleVal('${f.key}')">
+                  ${opts}
+                </select>
+              </td>
+              <td id="csvSample_${f.key}" style="padding:6px 8px;color:var(--muted);font-family:var(--mono);font-size:10.5px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(String(sampleVal))}">
+                ${esc(String(sampleVal))}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:8px;font-size:10px;color:var(--muted);">* Use Amount for single-column files (positive=CR, negative=DR). Use Debit/Credit for separate columns.</div>`;
 
-    // Show sample data hint
-    if (sample.length && headers.length) {
-      const sampleHtml = `<div style="margin-top:8px;font-size:9.5px;color:var(--muted);background:var(--surface2);border-radius:6px;padding:6px 8px;overflow-x:auto;">
-        <strong>Sample row:</strong> ${headers.map(h => `<span style="margin-right:8px;"><em>${esc(h)}:</em> ${esc(String(sample[0][h]||''))}</span>`).join('')}
-      </div>`;
-      mappingRows.insertAdjacentHTML('beforeend', sampleHtml);
-    }
-
+    // Store sample row globally for live updates
+    window._csvSampleRow = sampleRow;
     step1.style.display = 'none';
     step2.style.display = '';
   }
+
+  // Live sample value update when user changes a dropdown
+  window.updateSampleVal = function(fieldKey) {
+    const sel = document.getElementById('csvMap_' + fieldKey);
+    const td  = document.getElementById('csvSample_' + fieldKey);
+    if (!sel || !td) return;
+    const col = sel.value;
+    const val = col && window._csvSampleRow ? (window._csvSampleRow[col] || '—') : '—';
+    td.textContent = String(val);
+    td.title = String(val);
+  };
 
   mappingBack.addEventListener('click', () => {
     step2.style.display = 'none';
@@ -2404,7 +2433,7 @@ loadClients();
     errorDiv.style.display = 'none';
   });
 
-  // ── Step 2: Import with mapping ──
+  // Step 2: Import
   importBtn.addEventListener('click', async () => {
     if (!csvFile) return;
     const mapping = {};
@@ -2413,14 +2442,12 @@ loadClients();
       if (sel && sel.value) mapping[f.key] = sel.value;
     });
     if (!mapping.date || !mapping.description) {
-      errorDiv.textContent = '⚠ Date and Description columns are required.';
-      errorDiv.style.display = '';
-      return;
+      errorDiv.textContent = '⚠ Date and Description are required.';
+      errorDiv.style.display = ''; return;
     }
     if (!mapping.amount && !mapping.debit && !mapping.credit) {
       errorDiv.textContent = '⚠ Map at least Amount or Debit/Credit columns.';
-      errorDiv.style.display = '';
-      return;
+      errorDiv.style.display = ''; return;
     }
     importBtn.disabled = true;
     importBtn.textContent = 'Importing…';
@@ -2438,8 +2465,7 @@ loadClients();
       const d = await r.json();
       if (!r.ok || d.error) throw new Error(d.error || 'Import failed');
 
-      statementId       = d.statement_id;
-      activeStatementId = d.statement_id;
+      statementId = activeStatementId = d.statement_id;
       updateSidebarCtx();
       unlockNav('approve','categorize','gst','pnl','aicategorize');
       markDone('parse');
@@ -2466,6 +2492,7 @@ loadClients();
     }
   });
 })();
+
 
 // ══════════════════════════════════════════════════════════════════════════
 // AI VISION PAGE — NVIDIA Nemotron Multimodal
