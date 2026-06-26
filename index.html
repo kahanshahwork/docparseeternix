@@ -1703,8 +1703,14 @@ async function categorizeTxn(id, catId) {
   if (groupedMode) loadGroupedView();
 }
 
+// Store last groups response so categorizeGroup can use it without re-fetching
+let _lastGroupsData = null;
+// Track which group slots are expanded by their stable key (dir:group_key)
+let _expandedGroups = new Set();
+
 async function loadGroupedView() {
   const r = await fetch(`/api/statements/${statementId}/groups`).then(r=>r.json());
+  _lastGroupsData = r;
   const catOpts = '<option value="">— Uncategorized —</option>' + categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const gv = document.getElementById("groupedView");
 
@@ -1719,27 +1725,35 @@ async function loadGroupedView() {
   }
 
   let html = '';
-  allGroups.forEach((g, gi) => {
-    const txns    = g.transactions || [];
-    const doneCnt = txns.filter(t => t.category_id).length;
-    const allDone = doneCnt === txns.length && txns.length > 0;
-    const dir     = g._dir;
-    const dirColor = dir === 'CR' ? 'var(--green)' : 'var(--red)';
+  allGroups.forEach((g) => {
+    // Stable unique key: direction + group_key — prevents CR/DR same-name collision
+    const stableKey = (g._dir + ':' + g.group_key).replace(/[^a-zA-Z0-9:_\-]/g, '_');
+    const txns      = g.transactions || [];
+    const doneCnt   = txns.filter(t => t.category_id).length;
+    const allDone   = doneCnt === txns.length && txns.length > 0;
+    const dir       = g._dir;
+    const dirColor  = dir === 'CR' ? 'var(--green)' : 'var(--red)';
+    const isOpen    = _expandedGroups.has(stableKey);
 
-    // Determine dominant category for group dropdown
+    // Group dropdown: show dominant category if all txns share one category
     const groupCatId = g.dominant_category_id || '';
-    const groupCatOpts = catOpts.replace(`value="${groupCatId}"`, `value="${groupCatId}" selected`);
+    const groupCatOpts = groupCatId
+      ? catOpts.replace(`value="${groupCatId}"`, `value="${groupCatId}" selected`)
+      : catOpts;
 
-    // Individual txn rows (hidden, revealed on expand)
+    // Individual txn rows
     const txnRows = txns.map(t => {
-      const selOpts = catOpts.replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`);
+      const tCatId = t.category_id || '';
+      const selOpts = tCatId
+        ? catOpts.replace(`value="${tCatId}"`, `value="${tCatId}" selected`)
+        : catOpts;
       return `<tr style="border-top:1px solid var(--border);">
         <td style="padding:5px 8px 5px 34px;font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap;">${esc(t.date||'')}</td>
         <td style="padding:5px 8px;font-size:11px;color:var(--text-dim);" title="${esc(t.description||'')}">${esc((t.description||'').substring(0,65))}${(t.description||'').length>65?'…':''}</td>
         <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:${t.amount>0?'var(--green)':'var(--red)'};">${fmt(t.amount)}</td>
         <td style="padding:5px 8px;min-width:180px;">
           <select style="border:1px solid var(--border);border-radius:6px;padding:2px 5px;font-size:10.5px;background:var(--surface);color:var(--text);width:100%;"
-            onchange="categorizeTxnInGroup(${t.id}, this.value, ${gi})">
+            onchange="categorizeTxnInGroup(${t.id}, this.value, '${stableKey}')">
             ${selOpts}
           </select>
         </td>
@@ -1747,18 +1761,20 @@ async function loadGroupedView() {
     }).join('');
 
     html += `<div style="margin-bottom:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-      <div style="padding:9px 14px;background:var(--surface2);display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleGrp(${gi}, event)">
-        <span id="grp-arrow-${gi}" style="font-size:10px;color:var(--muted);flex-shrink:0;user-select:none;transition:transform .15s;">▶</span>
+      <div style="padding:9px 14px;background:var(--surface2);display:flex;align-items:center;gap:10px;cursor:pointer;"
+           onclick="toggleGrp('${stableKey}', event)">
+        <span id="grp-arrow-${stableKey}" style="font-size:10px;color:var(--muted);flex-shrink:0;user-select:none;">${isOpen ? '▼' : '▶'}</span>
         <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;background:${dir==='CR'?'var(--green-lo)':'var(--red-lo)'};color:${dirColor};flex-shrink:0;">${dir}</span>
         <span style="flex:1;font-size:12px;font-weight:700;">${esc(g.group_key)}</span>
-        <span style="font-size:10px;color:var(--muted);white-space:nowrap;">${doneCnt}/${txns.length} categorized · ${fmt(g.total)}</span>
+        <span style="font-size:10px;color:var(--muted);white-space:nowrap;">${doneCnt}/${txns.length} done · ${fmt(g.total)}</span>
         ${allDone ? '<span style="font-size:9px;background:var(--green-lo);color:var(--green);padding:2px 7px;border-radius:9px;font-weight:700;white-space:nowrap;">✓ ALL DONE</span>' : ''}
         <select style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;background:var(--surface);color:var(--text);min-width:170px;flex-shrink:0;"
-          onchange="categorizeGroup('${esc(g.group_key)}', this.value, ${gi})" onclick="event.stopPropagation()">
+          onchange="categorizeGroup('${dir}', '${esc(g.group_key)}', this.value)"
+          onclick="event.stopPropagation()">
           ${groupCatOpts}
         </select>
       </div>
-      <div id="grp-body-${gi}" style="display:none;">
+      <div id="grp-body-${stableKey}" style="display:${isOpen ? 'block' : 'none'};">
         <table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:var(--surface3);">
             <th style="padding:4px 8px 4px 34px;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;">DATE</th>
@@ -1775,53 +1791,51 @@ async function loadGroupedView() {
   gv.innerHTML = html;
 }
 
-function toggleGrp(gi, e) {
-  const body = document.getElementById('grp-body-' + gi);
-  const arrow = document.getElementById('grp-arrow-' + gi);
+function toggleGrp(stableKey, e) {
+  const body  = document.getElementById('grp-body-'  + stableKey);
+  const arrow = document.getElementById('grp-arrow-' + stableKey);
   if (!body) return;
   const open = body.style.display !== 'none';
-  body.style.display = open ? 'none' : 'block';
-  if (arrow) arrow.textContent = open ? '▶' : '▼';
+  if (open) {
+    body.style.display = 'none';
+    _expandedGroups.delete(stableKey);
+    if (arrow) arrow.textContent = '▶';
+  } else {
+    body.style.display = 'block';
+    _expandedGroups.add(stableKey);
+    if (arrow) arrow.textContent = '▼';
+  }
 }
 
-async function categorizeTxnInGroup(txnId, catId, gi) {
-  // Save individual txn category to DB
+async function categorizeTxnInGroup(txnId, catId, stableKey) {
   await fetch(`/api/statements/${statementId}/categorize`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({transaction_ids: [txnId], category_id: catId ? parseInt(catId) : null})
   });
-  // Update wfTransactions in memory
+  // Keep wfTransactions in sync
   const t = wfTransactions.find(t => t.id === txnId);
   if (t) t.category_id = catId ? parseInt(catId) : null;
   const done = wfTransactions.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
-  // Refresh grouped view to update done counts and badges
+  // Remember this group is expanded before re-render
+  _expandedGroups.add(stableKey);
   await loadGroupedView();
-  // Re-open the expanded group
-  const body = document.getElementById('grp-body-' + gi);
-  const arrow = document.getElementById('grp-arrow-' + gi);
-  if (body) { body.style.display = 'block'; }
-  if (arrow) { arrow.textContent = '▼'; }
 }
 
-async function categorizeGroup(groupKey, catId, gi) {
-  if (!catId) return; // no category selected — ignore
-  // Collect all transaction IDs in this group from the last groups response
-  // We fetch fresh groups to get the current transaction IDs for this group_key
-  const r = await fetch(`/api/statements/${statementId}/groups`).then(r=>r.json());
-  const allGrps = [...(r.debit||[]), ...(r.credit||[])];
-  const grp = allGrps.find(g => g.group_key === groupKey);
+async function categorizeGroup(dir, groupKey, catId) {
+  if (!catId) return;
+  // Use cached groups data — no extra fetch needed
+  const src = dir === 'DR' ? (_lastGroupsData?.debit || []) : (_lastGroupsData?.credit || []);
+  const grp = src.find(g => g.group_key === groupKey);
   if (!grp || !grp.transactions?.length) return;
   const tids = grp.transactions.map(t => t.id);
 
-  // Bulk categorize all txns in this group using the real /categorize endpoint
   await fetch(`/api/statements/${statementId}/categorize`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({transaction_ids: tids, category_id: parseInt(catId)})
   });
-  // Reload wfTransactions and grouped view
   const txnR = await fetch(`/api/statements/${statementId}/transactions`).then(r=>r.json());
   wfTransactions = txnR;
   const done = wfTransactions.filter(t => t.category_id).length;
@@ -1900,28 +1914,48 @@ document.getElementById("gstContinueBtn").addEventListener("click", async () => 
 // ── P&L ──────────────────────────────────────────────────────────────────
 async function loadPnl() {
   if (!statementId) return;
+  // Backend returns: {income_lines:[{category,amount}], expense_lines:[{category,amount}],
+  //                   total_income, total_expense, net_profit}
   const d = await fetch(`/api/statements/${statementId}/pnl`).then(r=>r.json());
-  const sections = [
-    { title: 'Income', group: 'Income', color: 'var(--green)' },
-    { title: 'Expenses', group: 'Expense', color: 'var(--red)' }
-  ];
-  let html = sections.map(s => {
-    const items = (d.by_category||[]).filter(c => c.pnl_group === s.group);
-    const total = items.reduce((a, c) => a + (c.net||0), 0);
+
+  const incomeLines  = d.income_lines  || [];
+  const expenseLines = d.expense_lines || [];
+  const totalIncome  = d.total_income  || 0;
+  const totalExpense = d.total_expense || 0;
+  const netProfit    = d.net_profit    || 0;
+
+  function renderSection(title, lines, total, color) {
+    if (!lines.length) return '';
     return `<div style="margin-bottom:20px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border);">
-        <h3 style="font-size:13px;font-weight:700;color:${s.color};">${s.title}</h3>
-        <span style="font-family:var(--mono);font-weight:700;color:${s.color};">${fmt(total)}</span>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid ${color};">
+        <h3 style="font-size:13px;font-weight:700;color:${color};">${title}</h3>
+        <span style="font-family:var(--mono);font-weight:700;color:${color};">${fmt(total)}</span>
       </div>
-      ${items.map(c=>`<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);">
-        <span>${esc(c.category_name)}</span><span style="font-family:var(--mono);">${fmt(c.net)}</span></div>`).join('')}
+      ${lines.map(c => `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);">
+        <span style="color:var(--text);">${esc(c.category)}</span>
+        <span style="font-family:var(--mono);color:${color};">${fmt(c.amount)}</span>
+      </div>`).join('')}
     </div>`;
-  }).join('');
-  const netProfit = (d.summary?.net_profit || 0);
+  }
+
+  let html = renderSection('Income', incomeLines, totalIncome, 'var(--green)')
+           + renderSection('Expenses', expenseLines, totalExpense, 'var(--red)');
+
+  if (!incomeLines.length && !expenseLines.length) {
+    html = '<div style="color:var(--muted);padding:20px;text-align:center;">No categorized transactions yet. Complete the Categorize step first.</div>';
+  }
+
   html += `<div style="padding:14px;background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-radius:10px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
     <span style="font-size:14px;font-weight:700;">Net Profit / Loss</span>
     <span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</span>
   </div>`;
+
+  // Export buttons
+  html += `<div style="display:flex;gap:8px;margin-top:14px;">
+    <a href="/api/statements/${statementId}/export/pnl" class="btn" style="text-decoration:none;font-size:12px;">⬇ Export P&L (.xlsx)</a>
+    <a href="/api/statements/${statementId}/export/gst" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export GST (.xlsx)</a>
+  </div>`;
+
   document.getElementById("pnlContent").innerHTML = html;
 }
 
