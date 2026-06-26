@@ -1727,8 +1727,10 @@ async function loadGroupedView() {
           .map(c => `<option value="${c.id}">${esc(c.name)}</option>`)
           .join('');
   }
-  const crCatOpts  = buildOpts([...incomeGroups,  ...excludedGroups]);
-  const drCatOpts  = buildOpts([...expenseGroups, ...excludedGroups]);
+  // CR = Revenue + Other Income ONLY
+  // DR = Expenses + Direct Cost ONLY
+  const crCatOpts = buildOpts(incomeGroups);
+  const drCatOpts = buildOpts([...expenseGroups, 'Direct Cost']);
   const gv = document.getElementById("groupedView");
 
   // API returns {debit:[...], credit:[...]}
