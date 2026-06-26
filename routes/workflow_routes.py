@@ -1055,6 +1055,52 @@ def business_types():
         ])
 
 
+
+@workflow_bp.route("/import/headers", methods=["POST"])
+def get_import_headers():
+    """Read uploaded CSV/Excel and return column headers + sample row for mapping UI."""
+    import io as _io
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f    = request.files["file"]
+    raw  = f.read()
+    fname = (f.filename or "").lower()
+    rows = []
+    try:
+        if fname.endswith(".csv"):
+            import csv
+            for enc in ("utf-8-sig", "utf-8", "latin-1"):
+                try:
+                    text = raw.decode(enc)
+                    rows = [dict(r) for r in csv.DictReader(_io.StringIO(text))]
+                    break
+                except Exception:
+                    continue
+        elif fname.endswith((".xlsx", ".xls")):
+            import openpyxl
+            wb  = openpyxl.load_workbook(_io.BytesIO(raw), data_only=True)
+            ws  = wb.active
+            all_rows = list(ws.iter_rows(values_only=True))
+            if all_rows:
+                headers = [str(c).strip() if c is not None else f"col_{i}"
+                           for i, c in enumerate(all_rows[0])]
+                rows = [
+                    {h: (str(v).strip() if v is not None else "")
+                     for h, v in zip(headers, row)}
+                    for row in all_rows[1:]
+                ]
+        else:
+            return jsonify({"error": "Unsupported file type. Use .csv, .xlsx or .xls"}), 400
+    except Exception as e:
+        return jsonify({"error": f"Could not read file: {e}"}), 400
+
+    if not rows:
+        return jsonify({"error": "File appears empty"}), 400
+
+    headers = list(rows[0].keys())
+    return jsonify({"headers": headers, "sample": rows[:3], "row_count": len(rows)})
+
+
 @workflow_bp.route("/statements/import-csv", methods=["POST"])
 def import_csv_excel():
     """
@@ -1101,7 +1147,7 @@ def import_csv_excel():
         elif fname.endswith((".xlsx", ".xls")):
             try:
                 import openpyxl
-                wb  = openpyxl.load_workbook(_io.BytesIO(raw), read_only=True, data_only=True)
+                wb  = openpyxl.load_workbook(_io.BytesIO(raw), data_only=True)
                 ws  = wb.active
                 all_rows = list(ws.iter_rows(values_only=True))
                 if not all_rows:
@@ -1125,19 +1171,23 @@ def import_csv_excel():
     if not rows:
         return jsonify({"error": "File has no data rows"}), 400
 
-    # ── Flexible column detection — case-insensitive, fuzzy name matching ──────
+    # ── Column detection — use explicit mapping if provided, else auto-detect ──
+    import json as _json
+    mapping_raw = request.form.get("mapping")
+    mapping     = None
+    if mapping_raw:
+        try:
+            mapping = _json.loads(mapping_raw)
+        except Exception:
+            pass
+
     def _find_col(headers, *candidates):
-        """
-        Find a column by any of the candidate names.
-        Matching: strip, lowercase, collapse whitespace.
-        """
         normalise = lambda s: " ".join(s.lower().split())
         norm_map  = {normalise(h): h for h in headers}
         for c in candidates:
             hit = norm_map.get(normalise(c))
             if hit is not None:
                 return hit
-        # Partial-match fallback: if any candidate is a substring of a header
         for c in candidates:
             nc = normalise(c)
             for nh, orig in norm_map.items():
@@ -1145,38 +1195,45 @@ def import_csv_excel():
                     return orig
         return None
 
-    headers   = list(rows[0].keys())
-    col_date  = _find_col(headers,
-                    "date", "transaction date", "txn date", "value date",
-                    "posted date", "trans date", "settlement date", "booking date")
-    col_desc  = _find_col(headers,
-                    "description", "details", "particulars", "narrative",
-                    "memo", "reference", "transaction details", "trans desc",
-                    "narration", "remarks", "note", "notes", "transaction description",
-                    "payment details", "transaction narrative", "payee")
-    col_deb   = _find_col(headers,
-                    "debit", "withdrawal", "withdrawals", "debit amount",
-                    "dr", "debit (aud)", "amount dr")
-    col_cred  = _find_col(headers,
-                    "credit", "deposit", "deposits", "credit amount",
-                    "cr", "credit (aud)", "amount cr")
-    col_amt   = _find_col(headers,
-                    "amount", "debit/credit", "credit/debit", "net amount",
-                    "transaction amount", "value", "net", "dr/cr amount")
+    headers = list(rows[0].keys())
+
+    if mapping:
+        # User provided explicit mapping from the UI
+        col_date  = mapping.get("date")  or None
+        col_desc  = mapping.get("description") or None
+        col_amt   = mapping.get("amount") or None
+        col_deb   = mapping.get("debit")  or None
+        col_cred  = mapping.get("credit") or None
+    else:
+        # Auto-detect
+        col_date  = _find_col(headers,
+                        "date", "transaction date", "txn date", "value date",
+                        "posted date", "trans date", "settlement date", "booking date")
+        col_desc  = _find_col(headers,
+                        "description", "details", "particulars", "narrative",
+                        "memo", "reference", "transaction details", "trans desc",
+                        "narration", "remarks", "note", "notes", "transaction description",
+                        "payment details", "transaction narrative", "payee")
+        col_deb   = _find_col(headers,
+                        "debit", "withdrawal", "withdrawals", "debit amount",
+                        "dr", "debit (aud)", "amount dr")
+        col_cred  = _find_col(headers,
+                        "credit", "deposit", "deposits", "credit amount",
+                        "cr", "credit (aud)", "amount cr")
+        col_amt   = _find_col(headers,
+                        "amount", "debit/credit", "credit/debit", "net amount",
+                        "transaction amount", "value", "net", "dr/cr amount")
 
     # Validation
     if not col_date:
         found = ", ".join(f"'{h}'" for h in headers[:8])
-        return jsonify({"error": f"Cannot find a Date column. Found: {found}. "
-                                 f"Rename it to 'Date'."}), 400
+        return jsonify({"error": f"Cannot find a Date column. Columns found: {found}"}), 400
     if not col_desc:
         found = ", ".join(f"'{h}'" for h in headers[:8])
-        return jsonify({"error": f"Cannot find a Description column. Found: {found}. "
-                                 f"Rename to 'Description' or 'Narrative'."}), 400
+        return jsonify({"error": f"Cannot find a Description column. Columns found: {found}"}), 400
     if not col_deb and not col_cred and not col_amt:
         found = ", ".join(f"'{h}'" for h in headers[:8])
-        return jsonify({"error": f"Cannot find an Amount column. Found: {found}. "
-                                 f"Need 'Debit'+'Credit' or 'Amount'."}), 400
+        return jsonify({"error": f"Cannot find an Amount column. Columns found: {found}"}), 400
 
     # ── Parse money ───────────────────────────────────────────────────────────
     def _money(s):
