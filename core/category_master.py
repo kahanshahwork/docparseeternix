@@ -18,7 +18,6 @@ DEFAULT_CATEGORIES = [
     # ── Revenue ──────────────────────────────────────────────────────────
     ("SALES",               "Sales",                        "Income",      1, 0.10, "G1",       10),
     ("INCOME",              "Income",                       "Income",      1, 0.10, "G1",       20),
-    ("OTHER_REVENUE",       "Other Revenue",                "Income",      1, 0.10, "G1",       30),
     ("INTEREST_INCOME",     "Interest Income",              "Income",      0, 0.0,  "G1",       40),
 
     # ── Other Income ─────────────────────────────────────────────────────
