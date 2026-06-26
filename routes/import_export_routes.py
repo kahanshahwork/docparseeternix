@@ -343,122 +343,105 @@ def export_gst(sid):
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        from openpyxl.utils import get_column_letter
     except ImportError:
         return jsonify({"error": "openpyxl not installed. Run: pip install openpyxl"}), 500
     try:
+        conn = get_db()
+        rows = [dict(r) for r in conn.execute(
+            "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.gst_applicable "
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "WHERE t.statement_id = ?", (sid,)
+        ).fetchall()]
 
-    conn = get_db()
-    rows = [dict(r) for r in conn.execute(
-        "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.gst_applicable "
-        "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
-        "WHERE t.statement_id = ?", (sid,)
-    ).fetchall()]
+        summary = gst_engine.summarize_gst(rows)
+        bas    = summary.get("bas", {})
+        by_cat = summary.get("by_category", [])
 
-    summary = gst_engine.summarize_gst(rows)
-    bas     = summary.get("bas", {})
-    by_cat  = summary.get("by_category", [])
+        wb  = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "BAS Summary"
 
-    wb = openpyxl.Workbook()
+        hdr_fill = PatternFill("solid", fgColor="1C3557")
+        hdr_font = Font(color="FFFFFF", bold=True, size=11)
+        bold     = Font(bold=True)
+        center   = Alignment(horizontal="center")
+        right    = Alignment(horizontal="right")
 
-    # ── Sheet 1: BAS Summary ──
-    ws1 = wb.active
-    ws1.title = "BAS Summary"
+        ws1.append(["BAS Field", "Label", "Amount"])
+        for cell in ws1[1]:
+            cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = center
 
-    hdr_fill  = PatternFill("solid", fgColor="1C3557")
-    hdr_font  = Font(color="FFFFFF", bold=True, size=11)
-    bold      = Font(bold=True)
-    mono      = Font(name="Courier New", size=10)
-    center    = Alignment(horizontal="center")
-    right     = Alignment(horizontal="right")
-    thin      = Side(style="thin", color="CCCCCC")
-    border    = Border(bottom=thin)
+        bas_fields = [
+            ("G1",  "Total Sales (inc. GST)"),
+            ("1A",  "GST on Sales"),
+            ("G10", "Total Purchases (inc. GST)"),
+            ("1B",  "GST Credits on Purchases"),
+        ]
+        for key, label in bas_fields:
+            ws1.append([key, label, bas.get(key, 0)])
+            ws1.cell(ws1.max_row, 3).number_format = "#,##0.00"
+            ws1.cell(ws1.max_row, 3).alignment = right
 
-    bas_fields = [
-        ("G1",  "Total Sales (inc. GST)"),
-        ("1A",  "GST on Sales"),
-        ("G10", "Total Purchases (inc. GST)"),
-        ("1B",  "GST Credits on Purchases"),
-    ]
+        ws1.append([])
+        net = (bas.get("1A", 0) or 0) - (bas.get("1B", 0) or 0)
+        ws1.append(["NET GST", "Payable" if net >= 0 else "Refundable", net])
+        r = ws1.max_row
+        for c in [1, 2, 3]:
+            ws1.cell(r, c).font = bold
+        ws1.cell(r, 3).number_format = "#,##0.00"
+        ws1.cell(r, 3).alignment = right
+        ws1.column_dimensions["A"].width = 12
+        ws1.column_dimensions["B"].width = 36
+        ws1.column_dimensions["C"].width = 18
 
-    ws1.append(["BAS Field", "Label", "Amount"])
-    for cell in ws1[1]:
-        cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = center
-    for key, label in bas_fields:
-        ws1.append([key, label, bas.get(key, 0)])
-        ws1.cell(ws1.max_row, 3).number_format = '#,##0.00'
-        ws1.cell(ws1.max_row, 3).alignment = right
+        ws2 = wb.create_sheet("By Category")
+        ws2.append(["Category", "P&L Group", "BAS Label", "Gross (inc GST)", "GST Amount", "Net (ex GST)", "Txn Count"])
+        for cell in ws2[1]:
+            cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = center
+        for cat in by_cat:
+            ws2.append([
+                cat.get("category", ""), cat.get("pnl_group", ""),
+                cat.get("bas_label", ""), cat.get("gross", 0),
+                cat.get("gst", 0), cat.get("net", 0), cat.get("count", 0),
+            ])
+            for col in [4, 5, 6]:
+                ws2.cell(ws2.max_row, col).number_format = "#,##0.00"
+        for col in ["A","B","C","D","E","F","G"]:
+            ws2.column_dimensions[col].width = 22
 
-    ws1.append([])
-    net = (bas.get("1A", 0) or 0) - (bas.get("1B", 0) or 0)
-    ws1.append(["NET GST", "Payable" if net >= 0 else "Refundable", net])
-    r = ws1.max_row
-    for c in [1, 2, 3]:
-        ws1.cell(r, c).font = bold
-    ws1.cell(r, 3).number_format = '#,##0.00'
-    ws1.cell(r, 3).alignment = right
+        ws3 = wb.create_sheet("Transactions")
+        ws3.append(["Date", "Description", "Category", "BAS Label", "Amount (inc GST)", "GST (÷11)", "Net (ex GST)"])
+        for cell in ws3[1]:
+            cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = center
+        for t in rows:
+            amt     = t.get("amount", 0) or 0
+            has_gst = bool(t.get("gst_applicable"))
+            gst_amt = round(amt / 11, 2) if has_gst else 0
+            net_amt = round(amt - gst_amt, 2)
+            ws3.append([
+                t.get("date", ""), t.get("description", ""),
+                t.get("category_name") or "Uncategorized",
+                t.get("bas_label") or "",
+                amt, gst_amt, net_amt,
+            ])
+            for col in [5, 6, 7]:
+                ws3.cell(ws3.max_row, col).number_format = "#,##0.00"
+        ws3.column_dimensions["A"].width = 14
+        ws3.column_dimensions["B"].width = 50
+        ws3.column_dimensions["C"].width = 24
+        ws3.column_dimensions["D"].width = 14
+        for col in ["E","F","G"]:
+            ws3.column_dimensions[col].width = 18
 
-    ws1.column_dimensions["A"].width = 12
-    ws1.column_dimensions["B"].width = 36
-    ws1.column_dimensions["C"].width = 18
-
-    # ── Sheet 2: Category Breakdown ──
-    ws2 = wb.create_sheet("By Category")
-    ws2.append(["Category", "P&L Group", "BAS Label", "Gross (inc GST)", "GST Amount", "Net (ex GST)", "Txn Count"])
-    for cell in ws2[1]:
-        cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = center
-    for cat in by_cat:
-        ws2.append([
-            cat.get("category", ""),
-            cat.get("pnl_group", ""),
-            cat.get("bas_label", ""),
-            cat.get("gross", 0),
-            cat.get("gst", 0),
-            cat.get("net", 0),
-            cat.get("count", 0),
-        ])
-        for col in [4, 5, 6]:
-            ws2.cell(ws2.max_row, col).number_format = '#,##0.00'
-    for col in ["A","B","C","D","E","F","G"]:
-        ws2.column_dimensions[col].width = 22
-
-    # ── Sheet 3: Transaction Detail ──
-    ws3 = wb.create_sheet("Transactions")
-    ws3.append(["Date", "Description", "Category", "BAS Label", "Amount (inc GST)", "GST (÷11)", "Net (ex GST)"])
-    for cell in ws3[1]:
-        cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = center
-    for t in rows:
-        amt = t.get("amount", 0) or 0
-        has_gst = bool(t.get("gst_applicable"))
-        gst_amt = round(amt / 11, 2) if has_gst else 0
-        net_amt = round(amt - gst_amt, 2)
-        ws3.append([
-            t.get("date", ""),
-            t.get("description", ""),
-            t.get("category_name") or "Uncategorized",
-            t.get("bas_label") or "",
-            amt, gst_amt, net_amt,
-        ])
-        for col in [5, 6, 7]:
-            ws3.cell(ws3.max_row, col).number_format = '#,##0.00'
-    ws3.column_dimensions["A"].width = 14
-    ws3.column_dimensions["B"].width = 50
-    ws3.column_dimensions["C"].width = 24
-    ws3.column_dimensions["D"].width = 14
-    for col in ["E","F","G"]:
-        ws3.column_dimensions[col].width = 18
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
         return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                          as_attachment=True, download_name=f"gst_summary_stmt{sid}.xlsx")
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-
-# ── P&L Excel export ──────────────────────────────────────────────────────────
 
 @ie_bp.route("/statements/<int:sid>/export/pnl", methods=["GET"])
 def export_pnl(sid):
@@ -468,76 +451,74 @@ def export_pnl(sid):
     except ImportError:
         return jsonify({"error": "openpyxl not installed. Run: pip install openpyxl"}), 500
     try:
+        conn = get_db()
+        rows = [dict(r) for r in conn.execute(
+            "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.gst_applicable "
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
+            "WHERE t.statement_id = ?", (sid,)
+        ).fetchall()]
 
-    conn = get_db()
-    rows = [dict(r) for r in conn.execute(
-        "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.gst_applicable "
-        "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
-        "WHERE t.statement_id = ?", (sid,)
-    ).fetchall()]
+        pnl = pnl_engine.generate_pnl(rows)
 
-    pnl = pnl_engine.generate_pnl(rows)
+        wb  = openpyxl.Workbook()
+        ws  = wb.active
+        ws.title = "Profit & Loss"
 
-    wb  = openpyxl.Workbook()
-    ws  = wb.active
-    ws.title = "Profit & Loss"
+        hdr_fill = PatternFill("solid", fgColor="1C3557")
+        hdr_font = Font(color="FFFFFF", bold=True, size=11)
+        bold     = Font(bold=True)
+        bold13   = Font(bold=True, size=13)
+        right    = Alignment(horizontal="right")
+        grn_fill = PatternFill("solid", fgColor="D1FAE5")
+        amb_fill = PatternFill("solid", fgColor="FEF3C7")
+        red_fill = PatternFill("solid", fgColor="FEE2E2")
+        sub_fill = PatternFill("solid", fgColor="EFF6FF")
 
-    hdr_fill = PatternFill("solid", fgColor="1C3557")
-    hdr_font = Font(color="FFFFFF", bold=True, size=11)
-    bold      = Font(bold=True)
-    bold13    = Font(bold=True, size=13)
-    right     = Alignment(horizontal="right")
-    grn_fill  = PatternFill("solid", fgColor="D1FAE5")
-    amb_fill  = PatternFill("solid", fgColor="FEF3C7")
-    red_fill  = PatternFill("solid", fgColor="FEE2E2")
-    sub_fill  = PatternFill("solid", fgColor="EFF6FF")
+        def section(title, lines, total, fill):
+            if not lines:
+                return
+            ws.append([title, ""])
+            for cell in ws[ws.max_row]:
+                cell.font = hdr_font; cell.fill = hdr_fill
+            for line in lines:
+                ws.append(["  " + (line.get("category") or ""), line.get("amount", 0)])
+                ws.cell(ws.max_row, 2).number_format = "#,##0.00"
+                ws.cell(ws.max_row, 2).alignment = right
+            ws.append(["Total " + title, total])
+            r = ws.max_row
+            ws.cell(r, 1).font = bold; ws.cell(r, 2).font = bold
+            ws.cell(r, 2).number_format = "#,##0.00"
+            ws.cell(r, 2).alignment = right
+            for c in [1, 2]:
+                ws.cell(r, c).fill = fill
+            ws.append([])
 
-    def section(title, lines, total, fill):
-        if not lines:
-            return
-        ws.append([title, ""])
-        for cell in ws[ws.max_row]:
-            cell.font = hdr_font; cell.fill = hdr_fill
-        for line in lines:
-            ws.append(["  " + (line.get("category") or ""), line.get("amount", 0)])
-            ws.cell(ws.max_row, 2).number_format = "#,##0.00"
-            ws.cell(ws.max_row, 2).alignment = right
-        ws.append(["Total " + title, total])
-        r = ws.max_row
-        ws.cell(r, 1).font = bold; ws.cell(r, 2).font = bold
-        ws.cell(r, 2).number_format = "#,##0.00"
-        ws.cell(r, 2).alignment = right
-        for c in [1, 2]:
-            ws.cell(r, c).fill = fill
-        ws.append([])
+        def subtotal_row(label, value, fill):
+            ws.append([label, value])
+            r = ws.max_row
+            ws.cell(r, 1).font = bold13; ws.cell(r, 2).font = bold13
+            ws.cell(r, 2).number_format = "#,##0.00"
+            ws.cell(r, 2).alignment = right
+            for c in [1, 2]:
+                ws.cell(r, c).fill = fill
+            ws.append([])
 
-    def subtotal_row(label, value, fill):
-        ws.append([label, value])
-        r = ws.max_row
-        ws.cell(r, 1).font = bold13; ws.cell(r, 2).font = bold13
-        ws.cell(r, 2).number_format = "#,##0.00"
-        ws.cell(r, 2).alignment = right
-        for c in [1, 2]:
-            ws.cell(r, c).fill = fill
-        ws.append([])
+        section("Revenue",      pnl.get("income_lines",      []), pnl.get("total_income",      0), grn_fill)
+        section("Direct Costs", pnl.get("direct_cost_lines", []), pnl.get("total_direct_cost", 0), amb_fill)
+        if pnl.get("direct_cost_lines"):
+            subtotal_row("Gross Profit", pnl.get("gross_profit", 0), sub_fill)
+        section("Expenses", pnl.get("expense_lines", []), pnl.get("total_expense", 0), red_fill)
 
-    section("Revenue",      pnl.get("income_lines",      []), pnl.get("total_income",      0), grn_fill)
-    section("Direct Costs", pnl.get("direct_cost_lines", []), pnl.get("total_direct_cost", 0), amb_fill)
-    if pnl.get("direct_cost_lines"):
-        gp = pnl.get("gross_profit", 0)
-        subtotal_row("Gross Profit", gp, sub_fill)
-    section("Expenses",     pnl.get("expense_lines",     []), pnl.get("total_expense",     0), red_fill)
+        net      = pnl.get("net_profit", 0)
+        net_fill = PatternFill("solid", fgColor=("D1FAE5" if net >= 0 else "FEE2E2"))
+        subtotal_row("Net Profit / Loss", net, net_fill)
 
-    net      = pnl.get("net_profit", 0)
-    net_fill = PatternFill("solid", fgColor=("D1FAE5" if net >= 0 else "FEE2E2"))
-    subtotal_row("Net Profit / Loss", net, net_fill)
+        ws.column_dimensions["A"].width = 40
+        ws.column_dimensions["B"].width = 20
 
-    ws.column_dimensions["A"].width = 40
-    ws.column_dimensions["B"].width = 20
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
         return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                          as_attachment=True, download_name=f"pnl_stmt{sid}.xlsx")
     except Exception as e:
