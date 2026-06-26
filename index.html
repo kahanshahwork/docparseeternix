@@ -2029,14 +2029,20 @@ async function loadAiCategorizePage() {
     }
     promptInfo.style.display = "none";
     document.getElementById("aiCatSub").textContent = `${d.total_uncategorized} uncategorized · ${d.batches.length} batch(es)`;
+    // Build scaffold HTML first (no prompt text inline — avoids innerHTML truncation on large prompts)
     promptBox.innerHTML = d.batches.map((b, i) => `
       <div style="margin-bottom:14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="font-size:11px;font-weight:700;">Batch ${i+1} / ${d.batches.length} (${b.count} transactions)</span>
+          <span style="font-size:11px;font-weight:700;">Batch ${i+1} / ${d.batches.length} · ${b.count} transactions</span>
           <button class="btn-sec" onclick="copyPrompt(${i})" style="font-size:10px;padding:3px 9px;">📋 Copy Batch ${i+1}</button>
         </div>
-        <pre id="batchPre${i}" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:10.5px;line-height:1.7;overflow-x:auto;white-space:pre-wrap;word-break:break-word;">${esc(b.prompt)}</pre>
+        <pre id="batchPre${i}" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:10.5px;line-height:1.7;overflow-x:auto;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow-y:auto;"></pre>
       </div>`).join('');
+    // Set prompt text via textContent (safe for any characters, no truncation)
+    d.batches.forEach((b, i) => {
+      const pre = document.getElementById('batchPre' + i);
+      if (pre) pre.textContent = b.prompt;
+    });
     promptBox.style.display = "block";
     applyBtn.disabled = false;
     refreshBtn.style.display = "inline-flex";
