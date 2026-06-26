@@ -2482,7 +2482,7 @@ loadClients();
       document.getElementById('netVal').textContent       = fmt(credits - debits);
       loadStatementsList();
       loadSavedStatements();
-      goPage('approve');
+      goPage('parse');
     } catch(e) {
       errorDiv.textContent = '⚠ ' + e.message;
       errorDiv.style.display = '';

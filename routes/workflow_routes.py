@@ -1336,10 +1336,14 @@ def import_csv_excel():
     # ── Persist to DB ─────────────────────────────────────────────────────────
     conn = get_db()
 
+    quarter_id = request.form.get("quarter_id") or None
+    name       = request.form.get("name") or (f.filename or "import").rsplit(".", 1)[0]
+
     stmt_id = conn.execute(
-        "INSERT INTO statements (quarter_id, statement_name, bank_id, filename, parse_time_ms) "
-        "VALUES (?,?,?,?,?)",
-        (quarter_id, name, "import", f.filename or name, 0)
+        "INSERT INTO statements (quarter_id, statement_name, bank_id, filename, status, created_at) "
+        "VALUES (?,?,?,?,?,?)",
+        (quarter_id, name, "import", f.filename or name, "parsed",
+         __import__("datetime").datetime.utcnow().isoformat())
     ).lastrowid
     conn.commit()
 
