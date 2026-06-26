@@ -403,21 +403,30 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
 
       <div class="sb-section">
         <div class="sb-label">Or Import CSV / Excel</div>
-        <div class="drop-zone" id="csvDropZone" style="border-color:var(--accent);">
-          <div class="drop-icon" style="color:var(--accent);">📊</div>
-          <div class="drop-hint"><strong>Click or drop</strong> a CSV or Excel file</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:3px;">.CSV · .XLSX · .XLS</div>
+        <!-- Step 1: Upload & Read Headers -->
+        <div id="csvStep1">
+          <div class="drop-zone" id="csvDropZone" style="border-color:var(--accent);">
+            <div class="drop-icon" style="color:var(--accent);">📊</div>
+            <div class="drop-hint"><strong>Click or drop</strong> a CSV or Excel file</div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;">.CSV · .XLSX · .XLS</div>
+          </div>
+          <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" style="display:none"/>
+          <div class="file-chosen" id="csvFileChosen" style="display:none;">
+            <span style="font-size:17px;">📊</span>
+            <span class="file-name" id="csvFileNameLabel"></span>
+            <button class="file-remove" id="csvRemoveFile" title="Remove">✕</button>
+          </div>
+          <button class="btn" id="csvReadHeadersBtn" disabled style="margin-top:8px;width:100%;background:var(--accent);">Read Columns →</button>
         </div>
-        <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" style="display:none"/>
-        <div class="file-chosen" id="csvFileChosen" style="display:none;">
-          <span style="font-size:17px;">📊</span>
-          <span class="file-name" id="csvFileNameLabel"></span>
-          <button class="file-remove" id="csvRemoveFile" title="Remove">✕</button>
+        <!-- Step 2: Column Mapping -->
+        <div id="csvStep2" style="display:none;margin-top:4px;">
+          <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:8px;">Map your columns to system fields</div>
+          <div id="csvMappingRows" style="display:flex;flex-direction:column;gap:7px;"></div>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <button class="btn" id="csvImportBtn" style="flex:1;background:var(--green);">Import →</button>
+            <button class="btn-sec" id="csvMappingBack" style="padding:0 10px;">← Back</button>
+          </div>
         </div>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px;">
-          Needs columns: <strong>Date</strong>, <strong>Description</strong>, <strong>Debit/Credit</strong> or <strong>Amount</strong>
-        </div>
-        <button class="btn" id="csvImportBtn" disabled style="margin-top:8px;width:100%;background:var(--accent);">Import Transactions</button>
         <div id="csvImportError" style="display:none;margin-top:6px;font-size:11px;color:var(--red);"></div>
       </div>
 
@@ -2265,46 +2274,154 @@ loadClients();
 // CSV / EXCEL IMPORT
 // ══════════════════════════════════════════════════════════════════════════
 (function() {
-  const dropZone    = document.getElementById('csvDropZone');
-  const fileInput   = document.getElementById('csvFileInput');
-  const fileChosen  = document.getElementById('csvFileChosen');
-  const fileLabel   = document.getElementById('csvFileNameLabel');
-  const removeBtn   = document.getElementById('csvRemoveFile');
-  const importBtn   = document.getElementById('csvImportBtn');
-  const errorDiv    = document.getElementById('csvImportError');
-  let   csvFile     = null;
+  // ── Elements ──
+  const dropZone       = document.getElementById('csvDropZone');
+  const fileInput      = document.getElementById('csvFileInput');
+  const fileChosen     = document.getElementById('csvFileChosen');
+  const fileLabel      = document.getElementById('csvFileNameLabel');
+  const removeBtn      = document.getElementById('csvRemoveFile');
+  const readHeadersBtn = document.getElementById('csvReadHeadersBtn');
+  const importBtn      = document.getElementById('csvImportBtn');
+  const mappingBack    = document.getElementById('csvMappingBack');
+  const step1          = document.getElementById('csvStep1');
+  const step2          = document.getElementById('csvStep2');
+  const mappingRows    = document.getElementById('csvMappingRows');
+  const errorDiv       = document.getElementById('csvImportError');
+  let csvFile = null;
 
+  // System fields the user must map
+  const SYSTEM_FIELDS = [
+    { key: 'date',        label: 'Date',        required: true  },
+    { key: 'description', label: 'Description', required: true  },
+    { key: 'amount',      label: 'Amount (single column)',      required: false },
+    { key: 'debit',       label: 'Debit (money out column)',    required: false },
+    { key: 'credit',      label: 'Credit (money in column)',    required: false },
+  ];
+
+  // ── File handling ──
   function setFile(f) {
     csvFile = f;
     fileLabel.textContent = f.name;
     fileChosen.style.display = 'flex';
-    dropZone.style.display   = 'none';
-    importBtn.disabled = false;
+    dropZone.style.display = 'none';
+    readHeadersBtn.disabled = false;
     errorDiv.style.display = 'none';
   }
   function clearFile() {
     csvFile = null;
     fileChosen.style.display = 'none';
-    dropZone.style.display   = '';
-    importBtn.disabled = true;
+    dropZone.style.display = '';
+    readHeadersBtn.disabled = true;
     fileInput.value = '';
     errorDiv.style.display = 'none';
+    step1.style.display = '';
+    step2.style.display = 'none';
   }
 
-  dropZone.addEventListener('click',      () => fileInput.click());
-  removeBtn.addEventListener('click',     clearFile);
-  fileInput.addEventListener('change',    e => { if (e.target.files[0]) setFile(e.target.files[0]); });
-
-  dropZone.addEventListener('dragover',   e => { e.preventDefault(); dropZone.style.background = 'var(--accent-lo)'; });
-  dropZone.addEventListener('dragleave',  () => { dropZone.style.background = ''; });
-  dropZone.addEventListener('drop',       e => {
+  dropZone.addEventListener('click',   () => fileInput.click());
+  removeBtn.addEventListener('click',  clearFile);
+  fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.style.background = 'var(--accent-lo)'; });
+  dropZone.addEventListener('dragleave', () => { dropZone.style.background = ''; });
+  dropZone.addEventListener('drop', e => {
     e.preventDefault(); dropZone.style.background = '';
     const f = e.dataTransfer.files[0];
     if (f && /\.(csv|xlsx|xls)$/i.test(f.name)) setFile(f);
   });
 
+  // ── Step 1: Read Headers ──
+  readHeadersBtn.addEventListener('click', async () => {
+    if (!csvFile) return;
+    readHeadersBtn.disabled = true;
+    readHeadersBtn.textContent = 'Reading…';
+    errorDiv.style.display = 'none';
+    try {
+      const fd = new FormData();
+      fd.append('file', csvFile);
+      const r = await fetch('/api/import/headers', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || 'Could not read file');
+      if (!d.headers.length) throw new Error('No columns found in file');
+      showMappingUI(d.headers, d.sample || []);
+    } catch(e) {
+      errorDiv.textContent = '⚠ ' + e.message;
+      errorDiv.style.display = '';
+    } finally {
+      readHeadersBtn.disabled = false;
+      readHeadersBtn.textContent = 'Read Columns →';
+    }
+  });
+
+  // ── Step 2: Mapping UI ──
+  function showMappingUI(headers, sample) {
+    const noneOpt = '<option value="">— skip —</option>';
+    const opts = noneOpt + headers.map(h => `<option value="${esc(h)}">${esc(h)}</option>`).join('');
+
+    // Auto-detect best match for each field using alias lists
+    const aliases = {
+      date:        ['date','trans date','transaction date','txn date','value date','posting date'],
+      description: ['description','narrative','narration','details','particulars','memo','reference','remarks','payee'],
+      amount:      ['amount','net amount','transaction amount','value'],
+      debit:       ['debit','withdrawal','dr','money out','debit amount','paid out'],
+      credit:      ['credit','deposit','cr','money in','credit amount','paid in'],
+    };
+    function autoDetect(fieldKey, headers) {
+      const al = aliases[fieldKey] || [];
+      for (const h of headers) {
+        if (al.includes(h.toLowerCase().trim())) return h;
+      }
+      return '';
+    }
+
+    mappingRows.innerHTML = SYSTEM_FIELDS.map(f => {
+      const auto = autoDetect(f.key, headers);
+      const selectedOpts = opts.replace(`value="${auto}"`, `value="${auto}" selected`);
+      return `<div style="display:flex;flex-direction:column;gap:2px;">
+        <label style="font-size:10px;font-weight:700;color:var(--text-dim);">
+          ${f.label}${f.required ? ' <span style="color:var(--red);">*</span>' : ''}
+        </label>
+        <select id="csvMap_${f.key}" style="border:1px solid var(--border);border-radius:6px;padding:4px 7px;font-size:11px;background:var(--surface);color:var(--text);">
+          ${selectedOpts}
+        </select>
+      </div>`;
+    }).join('');
+
+    // Show sample data hint
+    if (sample.length && headers.length) {
+      const sampleHtml = `<div style="margin-top:8px;font-size:9.5px;color:var(--muted);background:var(--surface2);border-radius:6px;padding:6px 8px;overflow-x:auto;">
+        <strong>Sample row:</strong> ${headers.map(h => `<span style="margin-right:8px;"><em>${esc(h)}:</em> ${esc(String(sample[0][h]||''))}</span>`).join('')}
+      </div>`;
+      mappingRows.insertAdjacentHTML('beforeend', sampleHtml);
+    }
+
+    step1.style.display = 'none';
+    step2.style.display = '';
+  }
+
+  mappingBack.addEventListener('click', () => {
+    step2.style.display = 'none';
+    step1.style.display = '';
+    errorDiv.style.display = 'none';
+  });
+
+  // ── Step 2: Import with mapping ──
   importBtn.addEventListener('click', async () => {
     if (!csvFile) return;
+    const mapping = {};
+    SYSTEM_FIELDS.forEach(f => {
+      const sel = document.getElementById('csvMap_' + f.key);
+      if (sel && sel.value) mapping[f.key] = sel.value;
+    });
+    if (!mapping.date || !mapping.description) {
+      errorDiv.textContent = '⚠ Date and Description columns are required.';
+      errorDiv.style.display = '';
+      return;
+    }
+    if (!mapping.amount && !mapping.debit && !mapping.credit) {
+      errorDiv.textContent = '⚠ Map at least Amount or Debit/Credit columns.';
+      errorDiv.style.display = '';
+      return;
+    }
     importBtn.disabled = true;
     importBtn.textContent = 'Importing…';
     errorDiv.style.display = 'none';
@@ -2315,20 +2432,20 @@ loadClients();
       if (activeQuarterId) fd.append('quarter_id', activeQuarterId);
       const name = document.getElementById('stmtNameInput').value.trim() || csvFile.name.replace(/\.[^.]+$/, '');
       fd.append('name', name);
+      fd.append('mapping', JSON.stringify(mapping));
 
       const r = await fetch('/api/statements/import-csv', { method: 'POST', body: fd });
       const d = await r.json();
       if (!r.ok || d.error) throw new Error(d.error || 'Import failed');
 
-      // Treat exactly like a parsed statement
-      statementId      = d.statement_id;
+      statementId       = d.statement_id;
       activeStatementId = d.statement_id;
       updateSidebarCtx();
       unlockNav('approve','categorize','gst','pnl','aicategorize');
       markDone('parse');
       clearFile();
       document.getElementById('stmtNameInput').value = '';
-      // Show summary
+
       const txns = d.transactions || [];
       const credits = txns.filter(t => t.amount > 0).reduce((s,t) => s+t.amount, 0);
       const debits  = txns.filter(t => t.amount < 0).reduce((s,t) => s+Math.abs(t.amount), 0);
@@ -2341,15 +2458,14 @@ loadClients();
       loadSavedStatements();
       goPage('approve');
     } catch(e) {
+      errorDiv.textContent = '⚠ ' + e.message;
       errorDiv.style.display = '';
-      errorDiv.textContent   = '⚠ ' + e.message;
     } finally {
       importBtn.disabled = false;
-      importBtn.textContent = 'Import Transactions';
+      importBtn.textContent = 'Import →';
     }
   });
 })();
-
 
 // ══════════════════════════════════════════════════════════════════════════
 // AI VISION PAGE — NVIDIA Nemotron Multimodal
