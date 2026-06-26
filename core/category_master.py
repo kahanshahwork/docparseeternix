@@ -22,6 +22,7 @@ DEFAULT_CATEGORIES = [
     ("INTEREST_INCOME",     "Interest Income",              "Income",      0, 0.0,  "G1",       40),
 
     # ── Other Income ─────────────────────────────────────────────────────
+    ("OTHER_INCOME",        "Other Income",                 "Income",      0, 0.0,  "G1",       45),
     ("GOVT_GRANT",          "Government Grant",             "Excluded",    0, 0.0,  "excluded", 50),
 
     # ── Direct Costs ─────────────────────────────────────────────────────

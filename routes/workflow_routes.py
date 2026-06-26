@@ -667,9 +667,10 @@ def ai_categorize_prompt(sid):
     cat_names = [c["name"] for c in categories]
 
     # Split categories by direction for the strict rules section
-    income_cats  = [c["name"] for c in categories if c.get("pnl_group") == "Income"]
-    expense_cats = [c["name"] for c in categories if c.get("pnl_group") == "Expense"]
-    excl_cats    = [c["name"] for c in categories if c.get("pnl_group") not in ("Income", "Expense")]
+    income_cats      = [c["name"] for c in categories if c.get("pnl_group") == "Income"]
+    expense_cats     = [c["name"] for c in categories if c.get("pnl_group") == "Expense"]
+    direct_cost_cats = [c["name"] for c in categories if c.get("pnl_group") == "Direct Cost"]
+    excl_cats        = [c["name"] for c in categories if c.get("pnl_group") == "Excluded"]
 
     cat_list_str = "\n".join(f"  - {n}" for n in cat_names)
 
@@ -725,13 +726,14 @@ def ai_categorize_prompt(sid):
             f"=== CATEGORIES (use EXACT names, case-sensitive) ===\n"
             f"{cat_list_str}\n\n"
             f"=== DIRECTION RULES (HARD — never break these) ===\n"
-            f"DR (debit, money OUT) → ONLY these groups: Expense or Excluded\n"
+            f"DR (debit, money OUT) → ONLY these groups: Direct Cost, Expense, or Excluded\n"
+            f"  Direct Cost: {', '.join(direct_cost_cats)}\n"
             f"  Expense: {', '.join(expense_cats)}\n"
             f"  Excluded: {', '.join(excl_cats)}\n"
             f"CR (credit, money IN) → ONLY these groups: Income or Excluded\n"
             f"  Income: {', '.join(income_cats)}\n"
             f"  Excluded: {', '.join(excl_cats)}\n"
-            f"NEVER assign an Income category to a DR row. NEVER assign an Expense category to a CR row.\n\n"
+            f"NEVER assign an Income or Direct Cost category to a CR row. NEVER assign an Expense or Direct Cost category to a CR row.\n\n"
             f"=== AUSTRALIAN VENDOR HINTS ===\n"
             f"{_AU_VENDOR_HINTS}\n\n"
             f"=== TRANSACTIONS{batch_label} ===\n"

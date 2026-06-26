@@ -1711,7 +1711,24 @@ let _expandedGroups = new Set();
 async function loadGroupedView() {
   const r = await fetch(`/api/statements/${statementId}/groups`).then(r=>r.json());
   _lastGroupsData = r;
-  const catOpts = '<option value="">— Uncategorized —</option>' + categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+
+  // Direction-filtered option lists
+  // CR = income direction → Income + BAS Excluded only
+  // DR = expense direction → Direct Cost + Expense + BAS Excluded only
+  const incomeGroups   = ['Income'];
+  const expenseGroups  = ['Direct Cost', 'Expense'];
+  const excludedGroups = ['Excluded'];
+
+  function buildOpts(pnlGroups) {
+    const allowed = new Set(pnlGroups);
+    return '<option value="">— Uncategorized —</option>'
+      + categories
+          .filter(c => allowed.has(c.pnl_group))
+          .map(c => `<option value="${c.id}">${esc(c.name)}</option>`)
+          .join('');
+  }
+  const crCatOpts  = buildOpts([...incomeGroups,  ...excludedGroups]);
+  const drCatOpts  = buildOpts([...expenseGroups, ...excludedGroups]);
   const gv = document.getElementById("groupedView");
 
   // API returns {debit:[...], credit:[...]}
@@ -1735,18 +1752,21 @@ async function loadGroupedView() {
     const dirColor  = dir === 'CR' ? 'var(--green)' : 'var(--red)';
     const isOpen    = _expandedGroups.has(stableKey);
 
-    // Group dropdown: show dominant category if all txns share one category
+    // Direction-aware option lists
+    const dirOpts = dir === 'CR' ? crCatOpts : drCatOpts;
+
+    // Group dropdown
     const groupCatId = g.dominant_category_id || '';
     const groupCatOpts = groupCatId
-      ? catOpts.replace(`value="${groupCatId}"`, `value="${groupCatId}" selected`)
-      : catOpts;
+      ? dirOpts.replace(`value="${groupCatId}"`, `value="${groupCatId}" selected`)
+      : dirOpts;
 
     // Individual txn rows
     const txnRows = txns.map(t => {
       const tCatId = t.category_id || '';
       const selOpts = tCatId
-        ? catOpts.replace(`value="${tCatId}"`, `value="${tCatId}" selected`)
-        : catOpts;
+        ? dirOpts.replace(`value="${tCatId}"`, `value="${tCatId}" selected`)
+        : dirOpts;
       return `<tr style="border-top:1px solid var(--border);">
         <td style="padding:5px 8px 5px 34px;font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap;">${esc(t.date||'')}</td>
         <td style="padding:5px 8px;font-size:11px;color:var(--text-dim);" title="${esc(t.description||'')}">${esc((t.description||'').substring(0,65))}${(t.description||'').length>65?'…':''}</td>
