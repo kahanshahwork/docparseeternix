@@ -1,121 +1,110 @@
 """
-core/category_master.py — Single source of truth for the Category Master (Module 4).
+core/category_master.py — Single source of truth for the Category Master.
 
-Touch this file ONLY when you need to add/edit/retire a category or change
-its GST treatment. Nothing else in the app hardcodes category logic — the
-GST engine and P&L engine both read from the `categories` table that this
-file seeds, so changes here propagate everywhere automatically.
-
-Based on current ATO GST/BAS treatment (taxable @10%, GST-free, input-taxed,
-and BAS-excluded are different buckets with different reporting effects).
-
-DESIGN: kept deliberately BROAD (~13 categories) rather than granular.
-Real bookkeeping for small/medium clients works better with a handful of
-broad buckets that vendor memory + AI can land on confidently, rather than
-20+ narrow categories where most transactions don't have a clean fit. If a
-specific client genuinely needs a finer split later (e.g. a wholesaler
-wanting a dedicated Cost of Goods Sold line), add ONE new category here for
-that purpose — don't pre-build categories nothing will ever match.
+52 nature-wise heads sourced from Australian_Charts_of_Account.csv.
+GST treatment per ATO rules:
+  GST on Income    → gst_applicable=1, bas_label=G1,  pnl_group=Income / Direct Cost
+  GST on Expenses  → gst_applicable=1, bas_label=G11, pnl_group=Expense / Direct Cost
+  GST Free Income  → gst_applicable=0, bas_label=G1,  pnl_group=Income
+  GST Free Expenses→ gst_applicable=0, bas_label=G11, pnl_group=Expense
+  BAS Excluded     → gst_applicable=0, bas_label=excluded, pnl_group=Excluded
 """
 
 from core.db import get_db
 
 # (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
+# pnl_group values: "Income" | "Direct Cost" | "Expense" | "Excluded"
 DEFAULT_CATEGORIES = [
-    ("SALES",         "Sales / Trading Income",         "Income",   1, 0.10, "G1",       10),
-    ("OTHER_INCOME",  "Other Income",                    "Income",   0, 0.0,  "excluded", 20),
+    # ── Revenue ──────────────────────────────────────────────────────────
+    ("SALES",               "Sales",                        "Income",      1, 0.10, "G1",       10),
+    ("INCOME",              "Income",                       "Income",      1, 0.10, "G1",       20),
+    ("OTHER_REVENUE",       "Other Revenue",                "Income",      1, 0.10, "G1",       30),
+    ("INTEREST_INCOME",     "Interest Income",              "Income",      0, 0.0,  "G1",       40),
 
-    ("FOOD",          "Food & Meals",                    "Expense",  1, 0.10, "G11",      110),
-    ("TRAVEL",        "Travel & Transport",               "Expense",  1, 0.10, "G11",      120),
-    ("OFFICE",        "Office & Operating Expenses",      "Expense",  1, 0.10, "G11",      130),
-    ("RENT",          "Rent / Lease Expense",             "Expense",  1, 0.10, "G11",      140),
-    ("PROFESSIONAL",  "Professional / Contractor Fees",   "Expense",  1, 0.10, "G11",      150),
-    ("INSURANCE",     "Insurance",                         "Expense",  1, 0.10, "G11",      160),
-    ("MARKETING",     "Marketing & Advertising",           "Expense",  1, 0.10, "G11",      170),
-    ("SALARY",        "Salary & Wages",                    "Expense",  0, 0.0,  "excluded", 180),
-    ("BANK_FEES",     "Bank Fees & Charges",               "Expense",  0, 0.0,  "excluded", 190),
+    # ── Other Income ─────────────────────────────────────────────────────
+    ("GOVT_GRANT",          "Government Grant",             "Excluded",    0, 0.0,  "excluded", 50),
 
-    ("LOAN_REPAY",    "Loan Repayment (principal)",        "Excluded", 0, 0.0,  "excluded", 800),
-    ("DRAWINGS",      "Drawings / Personal / Private",     "Excluded", 0, 0.0,  "excluded", 900),
-    ("UNCATEGORIZED", "Uncategorized",                     "Excluded", 0, 0.0,  "excluded", 999),
+    # ── Direct Costs ─────────────────────────────────────────────────────
+    ("COGS",                "Cost of Goods Sold",           "Direct Cost", 1, 0.10, "G11",      60),
+
+    # ── Expenses — GST on Expenses ───────────────────────────────────────
+    ("IT_DEV",              "IT Development Expense",       "Expense",     1, 0.10, "G11",      110),
+    ("SUPPLIES",            "Supplies Expense",             "Expense",     1, 0.10, "G11",      120),
+    ("FRANCHISE",           "Franchise Expense",            "Expense",     1, 0.10, "G11",      130),
+    ("ADVERTISING",         "Advertising",                  "Expense",     1, 0.10, "G11",      140),
+    ("MEMBERSHIP_FEES",     "Membership Fees",              "Expense",     1, 0.10, "G11",      150),
+    ("STAFF_AMENITIES",     "Staff Amenities",              "Expense",     1, 0.10, "G11",      160),
+    ("CLIENT_GIFTS",        "Client Gifts",                 "Expense",     1, 0.10, "G11",      170),
+    ("CLEANING",            "Cleaning",                     "Expense",     1, 0.10, "G11",      180),
+    ("MEETING_EXP",         "Meeting Expenses",             "Expense",     1, 0.10, "G11",      190),
+    ("SUBCONTRACTORS",      "Subcontractors",               "Expense",     1, 0.10, "G11",      200),
+    ("CONSULTING",          "Consulting & Accounting",      "Expense",     1, 0.10, "G11",      210),
+    ("EQUIP_RENTAL",        "Equipment Rental",             "Expense",     1, 0.10, "G11",      220),
+    ("FREIGHT",             "Freight & Courier",            "Expense",     1, 0.10, "G11",      230),
+    ("GENERAL_EXP",         "General Expenses",             "Expense",     1, 0.10, "G11",      240),
+    ("INSURANCE",           "Insurance",                    "Expense",     1, 0.10, "G11",      250),
+    ("ASSETS_U30K",         "Assets less than 30K",         "Expense",     1, 0.10, "G11",      260),
+    ("LEGAL",               "Legal expenses",               "Expense",     1, 0.10, "G11",      270),
+    ("LIGHT_POWER",         "Light, Power, Heating",        "Expense",     1, 0.10, "G11",      280),
+    ("WEBSITE",             "Website Expenses",             "Expense",     1, 0.10, "G11",      290),
+    ("MOTOR_VEHICLE",       "Motor Vehicle Expenses",       "Expense",     1, 0.10, "G11",      300),
+    ("OFFICE_EXP",          "Office Expenses",              "Expense",     1, 0.10, "G11",      310),
+    ("PRINTING",            "Printing & Stationery",        "Expense",     1, 0.10, "G11",      320),
+    ("RENT",                "Rent",                         "Expense",     1, 0.10, "G11",      330),
+    ("BAD_DEBTS",           "Bad Debts written off",        "Expense",     1, 0.10, "G11",      340),
+    ("REPAIRS",             "Repairs and Maintenance",      "Expense",     1, 0.10, "G11",      350),
+    ("SUBSCRIPTIONS",       "Subscriptions",                "Expense",     1, 0.10, "G11",      360),
+    ("TELEPHONE",           "Telephone & Internet",         "Expense",     1, 0.10, "G11",      370),
+    ("TRAVEL_NATIONAL",     "Travel - National",            "Expense",     1, 0.10, "G11",      380),
+
+    # ── Expenses — GST Free ──────────────────────────────────────────────
+    ("DONATION",            "Donation",                     "Expense",     0, 0.0,  "G11",      390),
+    ("FORMATION",           "Formation Expense",            "Expense",     0, 0.0,  "G11",      400),
+    ("COUNCIL_RATES",       "Council Rates",                "Expense",     0, 0.0,  "G11",      410),
+    ("FILING_FEES",         "Filing Fees",                  "Expense",     0, 0.0,  "G11",      420),
+    ("BANK_FEES",           "Bank Fees",                    "Expense",     0, 0.0,  "G11",      430),
+    ("ENTERTAINMENT",       "Entertainment",                "Expense",     0, 0.0,  "G11",      440),
+    ("INTEREST_EXP",        "Interest Expense",             "Expense",     0, 0.0,  "G11",      450),
+    ("MV_REGO",             "MV Rego",                      "Expense",     0, 0.0,  "G11",      460),
+    ("TRAVEL_INTL",         "Travel - International",       "Expense",     0, 0.0,  "G11",      470),
+
+    # ── BAS Excluded ─────────────────────────────────────────────────────
+    ("DEPRECIATION",        "Depreciation",                 "Excluded",    0, 0.0,  "excluded", 500),
+    ("WAGES",               "Wages and Salaries",           "Excluded",    0, 0.0,  "excluded", 510),
+    ("SUPER",               "Superannuation",               "Excluded",    0, 0.0,  "excluded", 520),
+    ("BANK_REVALUATIONS",   "Bank Revaluations",            "Excluded",    0, 0.0,  "excluded", 530),
+    ("UNREALISED_FX",       "Unrealised Currency Gains",    "Excluded",    0, 0.0,  "excluded", 540),
+    ("REALISED_FX",         "Realised Currency Gains",      "Excluded",    0, 0.0,  "excluded", 550),
+    ("INCOME_TAX",          "Income Tax Expense",           "Excluded",    0, 0.0,  "excluded", 560),
+    ("STRIPE_FEES",         "Stripe Fees",                  "Excluded",    0, 0.0,  "excluded", 570),
+
+    # ── System ───────────────────────────────────────────────────────────
+    ("UNCATEGORIZED",       "Uncategorized",                "Excluded",    0, 0.0,  "excluded", 999),
 ]
-
-# Codes that existed in the earlier, more granular version of this file.
-# Mapped here so consolidate_to_broad_categories() can fold any data already
-# sitting under an old code into its nearest broad replacement, rather than
-# orphaning it. Format: {old_code: new_code}
-RETIRED_CODE_MERGE_MAP = {
-    "EXPORT_SALES":   "OTHER_INCOME",     # GST-free either way, folds into Other Income
-    "INTEREST_INC":   "OTHER_INCOME",
-    "TELECOM":        "OFFICE",
-    "SUBSCRIPTIONS":  "OFFICE",
-    "UTILITIES":      "OFFICE",
-    "MEALS":          "FOOD",
-    "CAPITAL_ASSET":  "OFFICE",           # significant asset purchases: recommend manual review per-transaction
-}
 
 
 def seed_categories():
-    """Seeds the full DEFAULT_CATEGORIES set on a brand-new (empty) database."""
+    """
+    Wipes all existing categories and re-seeds from DEFAULT_CATEGORIES.
+    Transactions pointing at old category IDs will have category_id set to NULL
+    (uncategorized) — user re-categorizes from the new list.
+    Called once on app start.
+    """
     conn = get_db()
-    existing = conn.execute("SELECT COUNT(*) c FROM categories").fetchone()["c"]
-    if existing:
-        sync_new_categories()
-        consolidate_to_broad_categories()
-        return
+    # Null out any transaction references so FK constraints don't block deletion
+    conn.execute("UPDATE transactions SET category_id = NULL, gst_amount = 0, net_amount = amount WHERE category_id IS NOT NULL")
+    conn.execute("DELETE FROM categories")
     conn.executemany(
         """INSERT INTO categories (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
            VALUES (?,?,?,?,?,?,?)""",
         DEFAULT_CATEGORIES,
     )
     conn.commit()
-
-
-def consolidate_to_broad_categories():
-    """
-    One-time-per-database migration that folds any RETIRED_CODE_MERGE_MAP
-    categories (from the earlier, more granular Category Master) into their
-    broad replacement, then deactivates the retired ones.
-
-    Safe to call on every startup -- idempotent. Existing transactions
-    already pointing at a retired category_id are re-pointed to the
-    replacement category_id FIRST, so nothing gets orphaned or silently
-    loses its categorization; only then is the old category deactivated
-    (is_active=0, not deleted, so the audit trail / history stays intact).
-    """
-    conn = get_db()
-    code_to_id = {r["code"]: r["id"] for r in conn.execute("SELECT id, code FROM categories").fetchall()}
-
-    for old_code, new_code in RETIRED_CODE_MERGE_MAP.items():
-        old_id = code_to_id.get(old_code)
-        new_id = code_to_id.get(new_code)
-        if old_id is None or new_id is None or old_id == new_id:
-            continue
-
-        moved = conn.execute(
-            "SELECT COUNT(*) c FROM transactions WHERE category_id = ?", (old_id,)
-        ).fetchone()["c"]
-        if moved:
-            conn.execute(
-                "UPDATE transactions SET category_id = ? WHERE category_id = ?",
-                (new_id, old_id),
-            )
-            print(f"[category_master] Moved {moved} transaction(s) from "
-                  f"retired category '{old_code}' to '{new_code}'.")
-
-        conn.execute("UPDATE categories SET is_active = 0 WHERE id = ?", (old_id,))
-
-    conn.commit()
+    print(f"[category_master] Seeded {len(DEFAULT_CATEGORIES)} categories.")
 
 
 def sync_new_categories():
-    """
-    Idempotent: inserts any DEFAULT_CATEGORIES rows whose `code` doesn't
-    already exist in the DB, without touching existing rows. Safe to call
-    on every startup -- this is what lets you add a new category to
-    DEFAULT_CATEGORIES above and have it appear in an already-running
-    deployment without a manual migration.
-    """
+    """Inserts any DEFAULT_CATEGORIES rows missing from DB. Safe to call on startup."""
     conn = get_db()
     existing_codes = {r["code"] for r in conn.execute("SELECT code FROM categories").fetchall()}
     missing = [row for row in DEFAULT_CATEGORIES if row[0] not in existing_codes]
@@ -126,8 +115,7 @@ def sync_new_categories():
             missing,
         )
         conn.commit()
-        print(f"[category_master] Added {len(missing)} new category(ies): "
-              f"{[m[1] for m in missing]}")
+        print(f"[category_master] Added {len(missing)} new category(ies).")
 
 
 def list_categories(active_only: bool = True):
@@ -140,6 +128,8 @@ def list_categories(active_only: bool = True):
 
 
 def get_category(category_id: int):
+    if category_id is None:
+        return None
     conn = get_db()
     row = conn.execute("SELECT * FROM categories WHERE id = ?", (category_id,)).fetchone()
     return dict(row) if row else None

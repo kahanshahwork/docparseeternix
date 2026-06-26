@@ -1915,43 +1915,58 @@ document.getElementById("gstContinueBtn").addEventListener("click", async () => 
 // ── P&L ──────────────────────────────────────────────────────────────────
 async function loadPnl() {
   if (!statementId) return;
-  // Backend returns: {income_lines:[{category,amount}], expense_lines:[{category,amount}],
-  //                   total_income, total_expense, net_profit}
+  // Backend returns: {income_lines, direct_cost_lines, expense_lines,
+  //                   total_income, total_direct_cost, gross_profit, total_expense, net_profit}
   const d = await fetch(`/api/statements/${statementId}/pnl`).then(r=>r.json());
 
-  const incomeLines  = d.income_lines  || [];
-  const expenseLines = d.expense_lines || [];
-  const totalIncome  = d.total_income  || 0;
-  const totalExpense = d.total_expense || 0;
-  const netProfit    = d.net_profit    || 0;
+  const incomeLines     = d.income_lines      || [];
+  const directCostLines = d.direct_cost_lines || [];
+  const expenseLines    = d.expense_lines     || [];
+  const totalIncome     = d.total_income      || 0;
+  const totalDirectCost = d.total_direct_cost || 0;
+  const grossProfit     = d.gross_profit      || 0;
+  const totalExpense    = d.total_expense     || 0;
+  const netProfit       = d.net_profit        || 0;
 
   function renderSection(title, lines, total, color) {
     if (!lines.length) return '';
-    return `<div style="margin-bottom:20px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid ${color};">
-        <h3 style="font-size:13px;font-weight:700;color:${color};">${title}</h3>
-        <span style="font-family:var(--mono);font-weight:700;color:${color};">${fmt(total)}</span>
+    return `<div style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding-bottom:5px;border-bottom:2px solid ${color};">
+        <span style="font-size:12px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.4px;">${title}</span>
+        <span style="font-family:var(--mono);font-weight:700;font-size:13px;color:${color};">${fmt(total)}</span>
       </div>
-      ${lines.map(c => `<div style="display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--border);">
-        <span style="color:var(--text);">${esc(c.category)}</span>
-        <span style="font-family:var(--mono);color:${color};">${fmt(c.amount)}</span>
+      ${lines.map(c => `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border);">
+        <span style="color:var(--text-dim);">${esc(c.category)}</span>
+        <span style="font-family:var(--mono);color:var(--text);">${fmt(c.amount)}</span>
       </div>`).join('')}
     </div>`;
   }
 
-  let html = renderSection('Income', incomeLines, totalIncome, 'var(--green)')
-           + renderSection('Expenses', expenseLines, totalExpense, 'var(--red)');
-
-  if (!incomeLines.length && !expenseLines.length) {
-    html = '<div style="color:var(--muted);padding:20px;text-align:center;">No categorized transactions yet. Complete the Categorize step first.</div>';
+  function subtotalRow(label, value, color) {
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:16px;">
+      <span style="font-size:12px;font-weight:700;color:${color};">${label}</span>
+      <span style="font-family:var(--mono);font-weight:700;font-size:13px;color:${color};">${fmt(value)}</span>
+    </div>`;
   }
 
-  html += `<div style="padding:14px;background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-radius:10px;display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+  let html = '';
+
+  if (!incomeLines.length && !directCostLines.length && !expenseLines.length) {
+    html = '<div style="color:var(--muted);padding:20px;text-align:center;">No categorized transactions yet. Complete the Categorize step first.</div>';
+  } else {
+    html += renderSection('Revenue', incomeLines, totalIncome, 'var(--green)');
+    if (directCostLines.length) {
+      html += renderSection('Direct Costs', directCostLines, totalDirectCost, 'var(--amber)');
+      html += subtotalRow('Gross Profit', grossProfit, grossProfit >= 0 ? 'var(--green)' : 'var(--red)');
+    }
+    html += renderSection('Expenses', expenseLines, totalExpense, 'var(--red)');
+  }
+
+  html += `<div style="padding:14px;background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-radius:10px;display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
     <span style="font-size:14px;font-weight:700;">Net Profit / Loss</span>
     <span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</span>
   </div>`;
 
-  // Export buttons
   html += `<div style="display:flex;gap:8px;margin-top:14px;">
     <a href="/api/statements/${statementId}/export/pnl" class="btn" style="text-decoration:none;font-size:12px;">⬇ Export P&L (.xlsx)</a>
     <a href="/api/statements/${statementId}/export/gst" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export GST (.xlsx)</a>
