@@ -47,11 +47,11 @@ _DATE_KEYS = [
 ]
 _DESC_KEYS = [
     "Description", "description", "DESCRIPTION",
-    "Descriptions",  # typo variant
+    "Descriptions",
     "Narrative", "narrative", "NARRATIVE",
     "Narration", "narration", "NARRATION",
     "Details", "details", "DETAILS",
-    "Transaction Details", "Transaction Description",
+    "Transaction Details", "Transaction details", "Transaction Description",
     "Particulars", "particulars", "PARTICULARS",
     "Memo", "memo", "MEMO",
     "Reference", "reference", "REFERENCE",
@@ -79,17 +79,28 @@ _AMOUNT_KEYS = [
 
 
 def _get_field(raw, keys):
-    """Try a list of key aliases against a row dict, return first match."""
+    """Try a list of key aliases against a row dict, return first match.
+    Always does case-insensitive match so Transaction details == Transaction Details."""
+    # Build lower-keyed version of row once
+    raw_lower = {k2.lower().strip(): v2 for k2, v2 in raw.items()}
+    # First pass: exact match
     for k in keys:
         v = raw.get(k)
         if v is not None and str(v).strip() not in ("", "None"):
             return str(v).strip()
-    # Case-insensitive fallback
-    raw_lower = {k2.lower().strip(): v2 for k2, v2 in raw.items()}
+    # Second pass: case-insensitive
     for k in keys:
         v = raw_lower.get(k.lower().strip())
         if v is not None and str(v).strip() not in ("", "None"):
             return str(v).strip()
+    # Third pass: partial match (e.g. "transaction" matches "Transaction details")
+    for raw_key, raw_val in raw.items():
+        if raw_val is None or str(raw_val).strip() in ("", "None"):
+            continue
+        rk = raw_key.lower().strip()
+        for k in keys:
+            if k.lower().strip() in rk or rk in k.lower().strip():
+                return str(raw_val).strip()
     return ""
 
 
