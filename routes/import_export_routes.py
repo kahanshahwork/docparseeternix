@@ -173,8 +173,14 @@ def _read_excel(file_bytes):
 
 # ── CSV / Excel import ───────────────────────────────────────────────────────
 
-def _do_import(f, client_id=None, quarter_id=None, name=None):
-    """Shared import logic. Returns (statement_id, transactions) or raises."""
+def _do_import(f, client_id=None, quarter_id=None, name=None, mapping=None):
+    """
+    Shared import logic. Returns (statement_id, transactions) or raises.
+    mapping: optional dict like {"date": "Trans Date", "description": "Narrative",
+             "amount": "Amount", "debit": "Debit", "credit": "Credit"}
+    When mapping is provided, columns are read directly by mapped name.
+    When mapping is None, the flexible alias system is used as fallback.
+    """
     filename  = f.filename or "import"
     ext       = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     raw_bytes = f.read()
@@ -189,13 +195,44 @@ def _do_import(f, client_id=None, quarter_id=None, name=None):
     if not raw_rows:
         raise ValueError("File appears empty — no rows found.")
 
-    txns = [_normalise_row(r, i) for i, r in enumerate(raw_rows)]
+    if mapping:
+        # Use explicit user-defined mapping
+        def _mapped_row(raw, idx):
+            date_col   = mapping.get("date", "")
+            desc_col   = mapping.get("description", "")
+            amt_col    = mapping.get("amount", "")
+            debit_col  = mapping.get("debit", "")
+            credit_col = mapping.get("credit", "")
+
+            date  = str(raw.get(date_col, "")).strip()
+            desc  = str(raw.get(desc_col, "")).strip()
+
+            if debit_col or credit_col:
+                debit_val  = _parse_money(raw.get(debit_col))
+                credit_val = _parse_money(raw.get(credit_col))
+                if credit_val and credit_val != 0:
+                    amount = abs(credit_val)
+                elif debit_val and debit_val != 0:
+                    amount = -abs(debit_val)
+                else:
+                    amount = 0.0
+            elif amt_col:
+                amount = _parse_money(raw.get(amt_col)) or 0.0
+            else:
+                amount = 0.0
+
+            return {"date": date, "description": desc, "amount": amount, "source_page": None}
+
+        txns = [_mapped_row(r, i) for i, r in enumerate(raw_rows)]
+    else:
+        txns = [_normalise_row(r, i) for i, r in enumerate(raw_rows)]
+
     txns = [t for t in txns if t["description"] or t["amount"]]
 
     if not txns:
         raise ValueError(
             "No valid transactions found. "
-            "Check column names — expected: Date + Description + (Debit/Credit or Amount). "
+            "Check column mapping — expected: Date + Description + (Debit/Credit or Amount). "
             f"Columns found: {list(raw_rows[0].keys()) if raw_rows else 'none'}"
         )
 
@@ -225,6 +262,42 @@ def _do_import(f, client_id=None, quarter_id=None, name=None):
     return sid, rows
 
 
+
+@ie_bp.route("/import/headers", methods=["POST"])
+def get_csv_headers():
+    """Read uploaded file and return its column headers for mapping UI."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file uploaded"}), 400
+    ext = (f.filename or "").rsplit(".", 1)[-1].lower()
+    raw_bytes = f.read()
+    try:
+        if ext == "csv":
+            rows = _read_csv(raw_bytes, f.filename)
+        elif ext in ("xlsx", "xls"):
+            rows = _read_excel(raw_bytes)
+        else:
+            return jsonify({"error": f"Unsupported file type .{ext}"}), 400
+        headers = list(rows[0].keys()) if rows else []
+        # Return sample rows (first 3) so user can see data alongside headers
+        sample = rows[:3] if rows else []
+        return jsonify({"headers": headers, "sample": sample, "row_count": len(rows)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+def _parse_mapping_from_request():
+    """Extract column mapping from form data (sent as JSON string in 'mapping' field)."""
+    import json
+    mapping_raw = request.form.get("mapping")
+    if mapping_raw:
+        try:
+            return json.loads(mapping_raw)
+        except Exception:
+            pass
+    return None
+
+
 @ie_bp.route("/import/csv", methods=["POST"])
 def import_csv():
     """Original URL: /api/import/csv"""
@@ -234,8 +307,9 @@ def import_csv():
     client_id  = request.form.get("client_id")
     quarter_id = request.form.get("quarter_id")
     name       = request.form.get("name")
+    mapping    = _parse_mapping_from_request()
     try:
-        sid, rows = _do_import(f, client_id, quarter_id, name)
+        sid, rows = _do_import(f, client_id, quarter_id, name, mapping)
         return jsonify({"statement_id": sid, "transactions": rows})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -252,8 +326,9 @@ def import_csv_alias():
     client_id  = request.form.get("client_id")
     quarter_id = request.form.get("quarter_id")
     name       = request.form.get("name")
+    mapping    = _parse_mapping_from_request()
     try:
-        sid, rows = _do_import(f, client_id, quarter_id, name)
+        sid, rows = _do_import(f, client_id, quarter_id, name, mapping)
         return jsonify({"statement_id": sid, "transactions": rows})
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -270,11 +345,12 @@ def export_gst(sid):
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
     except ImportError:
-        return "openpyxl not installed", 500
+        return jsonify({"error": "openpyxl not installed. Run: pip install openpyxl"}), 500
+    try:
 
     conn = get_db()
     rows = [dict(r) for r in conn.execute(
-        "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.has_gst "
+        "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.gst_applicable "
         "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
         "WHERE t.statement_id = ?", (sid,)
     ).fetchall()]
@@ -353,7 +429,7 @@ def export_gst(sid):
         cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = center
     for t in rows:
         amt = t.get("amount", 0) or 0
-        has_gst = bool(t.get("has_gst"))
+        has_gst = bool(t.get("gst_applicable"))
         gst_amt = round(amt / 11, 2) if has_gst else 0
         net_amt = round(amt - gst_amt, 2)
         ws3.append([
@@ -375,8 +451,11 @@ def export_gst(sid):
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                     as_attachment=True, download_name=f"gst_summary_stmt{sid}.xlsx")
+        return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name=f"gst_summary_stmt{sid}.xlsx")
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 # ── P&L Excel export ──────────────────────────────────────────────────────────
@@ -387,11 +466,12 @@ def export_pnl(sid):
         import openpyxl
         from openpyxl.styles import Font, PatternFill, Alignment
     except ImportError:
-        return "openpyxl not installed", 500
+        return jsonify({"error": "openpyxl not installed. Run: pip install openpyxl"}), 500
+    try:
 
     conn = get_db()
     rows = [dict(r) for r in conn.execute(
-        "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.has_gst "
+        "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.gst_applicable "
         "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id "
         "WHERE t.statement_id = ?", (sid,)
     ).fetchall()]
@@ -404,40 +484,53 @@ def export_pnl(sid):
 
     hdr_fill = PatternFill("solid", fgColor="1C3557")
     hdr_font = Font(color="FFFFFF", bold=True, size=11)
-    bold     = Font(bold=True)
-    right    = Alignment(horizontal="right")
-    grn_fill = PatternFill("solid", fgColor="D1FAE5")
-    red_fill = PatternFill("solid", fgColor="FEE2E2")
+    bold      = Font(bold=True)
+    bold13    = Font(bold=True, size=13)
+    right     = Alignment(horizontal="right")
+    grn_fill  = PatternFill("solid", fgColor="D1FAE5")
+    amb_fill  = PatternFill("solid", fgColor="FEF3C7")
+    red_fill  = PatternFill("solid", fgColor="FEE2E2")
+    sub_fill  = PatternFill("solid", fgColor="EFF6FF")
 
     def section(title, lines, total, fill):
+        if not lines:
+            return
         ws.append([title, ""])
         for cell in ws[ws.max_row]:
             cell.font = hdr_font; cell.fill = hdr_fill
         for line in lines:
             ws.append(["  " + (line.get("category") or ""), line.get("amount", 0)])
-            ws.cell(ws.max_row, 2).number_format = '#,##0.00'
+            ws.cell(ws.max_row, 2).number_format = "#,##0.00"
             ws.cell(ws.max_row, 2).alignment = right
         ws.append(["Total " + title, total])
         r = ws.max_row
         ws.cell(r, 1).font = bold; ws.cell(r, 2).font = bold
-        ws.cell(r, 2).number_format = '#,##0.00'
+        ws.cell(r, 2).number_format = "#,##0.00"
         ws.cell(r, 2).alignment = right
         for c in [1, 2]:
             ws.cell(r, c).fill = fill
         ws.append([])
 
-    section("Income",   pnl.get("income_lines",  []), pnl.get("total_income",  0), grn_fill)
-    section("Expenses", pnl.get("expense_lines", []), pnl.get("total_expense", 0), red_fill)
+    def subtotal_row(label, value, fill):
+        ws.append([label, value])
+        r = ws.max_row
+        ws.cell(r, 1).font = bold13; ws.cell(r, 2).font = bold13
+        ws.cell(r, 2).number_format = "#,##0.00"
+        ws.cell(r, 2).alignment = right
+        for c in [1, 2]:
+            ws.cell(r, c).fill = fill
+        ws.append([])
 
-    net = pnl.get("net_profit", 0)
-    ws.append(["Net Profit / Loss", net])
-    r = ws.max_row
-    ws.cell(r, 1).font = Font(bold=True, size=13)
-    ws.cell(r, 2).font = Font(bold=True, size=13)
-    ws.cell(r, 2).number_format = '#,##0.00'
-    ws.cell(r, 2).alignment = right
+    section("Revenue",      pnl.get("income_lines",      []), pnl.get("total_income",      0), grn_fill)
+    section("Direct Costs", pnl.get("direct_cost_lines", []), pnl.get("total_direct_cost", 0), amb_fill)
+    if pnl.get("direct_cost_lines"):
+        gp = pnl.get("gross_profit", 0)
+        subtotal_row("Gross Profit", gp, sub_fill)
+    section("Expenses",     pnl.get("expense_lines",     []), pnl.get("total_expense",     0), red_fill)
+
+    net      = pnl.get("net_profit", 0)
     net_fill = PatternFill("solid", fgColor=("D1FAE5" if net >= 0 else "FEE2E2"))
-    ws.cell(r, 1).fill = net_fill; ws.cell(r, 2).fill = net_fill
+    subtotal_row("Net Profit / Loss", net, net_fill)
 
     ws.column_dimensions["A"].width = 40
     ws.column_dimensions["B"].width = 20
@@ -445,5 +538,8 @@ def export_pnl(sid):
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                     as_attachment=True, download_name=f"pnl_stmt{sid}.xlsx")
+        return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name=f"pnl_stmt{sid}.xlsx")
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
