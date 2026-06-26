@@ -370,6 +370,26 @@ def finalize_gst(sid):
     return jsonify({"status": "gst_reviewed"})
 
 
+@workflow_bp.route("/statements/<int:sid>/finalize_categorize", methods=["POST"])
+def finalize_categorize(sid):
+    """Mark statement as categorized (step 3 complete)."""
+    conn = get_db()
+    conn.execute("UPDATE statements SET status = 'categorized' WHERE id = ?", (sid,))
+    conn.commit()
+    log_audit("statement", sid, "finalize_categorize")
+    return jsonify({"status": "categorized"})
+
+
+@workflow_bp.route("/statements/<int:sid>/finalize_pnl", methods=["POST"])
+def finalize_pnl(sid):
+    """Mark statement as fully complete (step 5 P&L done)."""
+    conn = get_db()
+    conn.execute("UPDATE statements SET status = 'finalized' WHERE id = ?", (sid,))
+    conn.commit()
+    log_audit("statement", sid, "finalize_pnl")
+    return jsonify({"status": "finalized"})
+
+
 # ── P&L (item 9) ─────────────────────────────────────────────────────────────
 
 @workflow_bp.route("/statements/<int:sid>/pnl", methods=["GET"])
