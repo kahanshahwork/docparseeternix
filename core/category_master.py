@@ -15,16 +15,18 @@ from core.db import get_db
 # (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
 # pnl_group values: "Income" | "Direct Cost" | "Expense" | "Excluded"
 DEFAULT_CATEGORIES = [
-    # ── Revenue ──────────────────────────────────────────────────────────
+    # ── Revenue (GST on Income) ───────────────────────────────────────────
     ("SALES",               "Sales",                        "Income",      1, 0.10, "G1",       10),
     ("INCOME",              "Income",                       "Income",      1, 0.10, "G1",       20),
+    ("OTHER_REVENUE",       "Other Revenue",                "Income",      1, 0.10, "G1",       30),
+
+    # ── Revenue (GST Free Income) ─────────────────────────────────────────
     ("INTEREST_INCOME",     "Interest Income",              "Income",      0, 0.0,  "G1",       40),
 
     # ── Other Income ─────────────────────────────────────────────────────
     ("OTHER_INCOME",        "Other Income",                 "Income",      0, 0.0,  "G1",       45),
-    ("GOVT_GRANT",          "Government Grant",             "Excluded",    0, 0.0,  "excluded", 50),
 
-    # ── Direct Costs ─────────────────────────────────────────────────────
+    # ── Direct Costs (GST on Expenses) ───────────────────────────────────
     ("COGS",                "Cost of Goods Sold",           "Direct Cost", 1, 0.10, "G11",      60),
 
     # ── Expenses — GST on Expenses ───────────────────────────────────────
@@ -67,16 +69,6 @@ DEFAULT_CATEGORIES = [
     ("INTEREST_EXP",        "Interest Expense",             "Expense",     0, 0.0,  "G11",      450),
     ("MV_REGO",             "MV Rego",                      "Expense",     0, 0.0,  "G11",      460),
     ("TRAVEL_INTL",         "Travel - International",       "Expense",     0, 0.0,  "G11",      470),
-
-    # ── BAS Excluded ─────────────────────────────────────────────────────
-    ("DEPRECIATION",        "Depreciation",                 "Excluded",    0, 0.0,  "excluded", 500),
-    ("WAGES",               "Wages and Salaries",           "Excluded",    0, 0.0,  "excluded", 510),
-    ("SUPER",               "Superannuation",               "Excluded",    0, 0.0,  "excluded", 520),
-    ("BANK_REVALUATIONS",   "Bank Revaluations",            "Excluded",    0, 0.0,  "excluded", 530),
-    ("UNREALISED_FX",       "Unrealised Currency Gains",    "Excluded",    0, 0.0,  "excluded", 540),
-    ("REALISED_FX",         "Realised Currency Gains",      "Excluded",    0, 0.0,  "excluded", 550),
-    ("INCOME_TAX",          "Income Tax Expense",           "Excluded",    0, 0.0,  "excluded", 560),
-    ("STRIPE_FEES",         "Stripe Fees",                  "Excluded",    0, 0.0,  "excluded", 570),
 
     # ── System ───────────────────────────────────────────────────────────
     ("UNCATEGORIZED",       "Uncategorized",                "Excluded",    0, 0.0,  "excluded", 999),
