@@ -1434,80 +1434,20 @@ document.getElementById('saveStmtBtn').addEventListener('click', async () => {
   const name = document.getElementById('stmtNameInput').value.trim() || parseMeta.filename || 'Statement';
   await sendToWorkflow(name);
 });
-document.getElementById('workflowBtn').addEventListener('click', () => {
-  // If already saved, just proceed
+document.getElementById('workflowBtn').addEventListener('click', async () => {
+  // If already saved, just proceed to approve
   if (statementId) {
     unlockNav('approve','categorize','gst','pnl','aicategorize');
     markDone('parse');
     goPage('approve');
     return;
   }
-  // ── Send to Workflow WITHOUT saving to DB ──
-  // Load transactions in-memory into the approve page directly
-  if (!allTxns.length) { alert('No transactions to send.'); return; }
-  wfTransactions = allTxns.map((t, i) => ({
-    id: null,
-    date: t.date || '',
-    description: t.description || '',
-    amount: t.amount || 0,
-    source_page: t.source_page || null,
-    category_id: null
-  }));
-  // Mark unsaved so downstream steps know to save first if needed
-  statementId = null;
-  activeStatementId = null;
-  unlockNav('approve');
-  markDone('parse');
-  loadApproveUnsaved();
-  goPage('approve');
+  // No allTxns? bail
+  if (!allTxns.length) { alert('No transactions to send to workflow.'); return; }
+  // Save immediately (same as Save & Continue, just no name required)
+  const name = document.getElementById('stmtNameInput').value.trim() || parseMeta?.filename || 'Statement';
+  await sendToWorkflow(name);
 });
-
-function loadApproveUnsaved() {
-  // Render approve page from in-memory wfTransactions (not yet in DB)
-  document.getElementById('approveSub').textContent = 'Unsaved — transactions not yet committed to DB';
-  document.getElementById('approveBody').innerHTML = wfTransactions.map((t, i) => `
-    <tr>
-      <td><input type="text" value="${esc(t.date||'')}" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-family:var(--mono);font-size:11px;color:var(--text);padding:3px 6px;width:100px;" oninput="wfTransactions[${i}].date=this.value"/></td>
-      <td><input type="text" value="${esc(t.description||'')}" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-size:11.5px;color:var(--text);padding:3px 6px;width:100%;" oninput="wfTransactions[${i}].description=this.value"/></td>
-      <td style="color:var(--muted);font-size:11px;">${t.source_page||''}</td>
-      <td style="text-align:right;">
-        <input type="number" value="${t.amount}" step="0.01" style="border:1px solid var(--border);border-radius:5px;background:var(--surface2);font-family:var(--mono);font-size:11.5px;color:${t.amount>=0?'var(--green)':'var(--red)'};text-align:right;padding:3px 6px;width:100px;" oninput="wfTransactions[${i}].amount=parseFloat(this.value)||0"/>
-      </td>
-    </tr>`).join('');
-  // Override approveBtn to save first then proceed
-  document.getElementById('approveBtn').onclick = async function() {
-    if (!statementId) {
-      // Need to save now
-      const name = document.getElementById('stmtNameInput').value.trim() || parseMeta?.filename || 'Statement';
-      try {
-        const body = {
-          transactions: wfTransactions.map(t => ({
-            date: t.date, description: t.description, amount: t.amount,
-            source_page: t.source_page
-          })),
-          bank_id: parseMeta?.bank_id || 'unknown',
-          filename: parseMeta?.filename || '',
-          quarter_id: activeQuarterId || null,
-          statement_name: name
-        };
-        const r = await fetch('/api/statements', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-        const d = await r.json();
-        statementId = d.id;
-        activeStatementId = d.id;
-        updateSidebarCtx();
-        document.getElementById('sidebarFooter').textContent = `Stmt #${statementId} · ${wfTransactions.length} txns`;
-        if (activeQuarterId) { loadStatementsList(); loadSavedStatements(); }
-      } catch(e) { alert('Error saving statement: ' + e.message); return; }
-    } else {
-      await fetch(`/api/statements/${statementId}/approve`, { method:'POST' });
-    }
-    markDone('approve');
-    unlockNav('categorize');
-    goPage('categorize');
-    // Restore default approveBtn handler
-    document.getElementById('approveBtn').onclick = null;
-  };
-}
 
 async function sendToWorkflow(nameOverride) {
   try {
@@ -1765,32 +1705,119 @@ async function categorizeTxn(id, catId) {
 
 async function loadGroupedView() {
   const r = await fetch(`/api/statements/${statementId}/groups`).then(r=>r.json());
-  const catOpts = '<option value="">Uncategorized</option>' + categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const catOpts = '<option value="">— Uncategorized —</option>' + categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
   const gv = document.getElementById("groupedView");
-  gv.innerHTML = r.groups ? r.groups.map(g => `
-    <div style="margin-bottom:12px; border:1px solid var(--border); border-radius:10px; overflow:hidden;">
-      <div style="padding:10px 14px; background:var(--surface2); display:flex; align-items:center; gap:10px;">
-        <span style="flex:1; font-size:12px; font-weight:700;">${esc(g.group_key)}</span>
-        <span style="font-size:10px; color:var(--muted);">${g.count} transactions · ${fmt(g.total)}</span>
-        <select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;" onchange="categorizeGroup('${esc(g.group_key)}', this.value)">
-          ${catOpts}
+
+  // API returns {debit:[...], credit:[...]}
+  const debitGroups  = (r.debit  || []).map(g => ({...g, _dir:'DR'}));
+  const creditGroups = (r.credit || []).map(g => ({...g, _dir:'CR'}));
+  const allGroups    = [...creditGroups, ...debitGroups];
+
+  if (!allGroups.length) {
+    gv.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;">No transaction groups found.</div>';
+    return;
+  }
+
+  let html = '';
+  allGroups.forEach((g, gi) => {
+    const txns    = g.transactions || [];
+    const doneCnt = txns.filter(t => t.category_id).length;
+    const allDone = doneCnt === txns.length && txns.length > 0;
+    const dir     = g._dir;
+    const dirColor = dir === 'CR' ? 'var(--green)' : 'var(--red)';
+
+    // Determine dominant category for group dropdown
+    const groupCatId = g.dominant_category_id || '';
+    const groupCatOpts = catOpts.replace(`value="${groupCatId}"`, `value="${groupCatId}" selected`);
+
+    // Individual txn rows (hidden, revealed on expand)
+    const txnRows = txns.map(t => {
+      const selOpts = catOpts.replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`);
+      return `<tr style="border-top:1px solid var(--border);">
+        <td style="padding:5px 8px 5px 34px;font-family:var(--mono);font-size:10.5px;color:var(--muted);white-space:nowrap;">${esc(t.date||'')}</td>
+        <td style="padding:5px 8px;font-size:11px;color:var(--text-dim);" title="${esc(t.description||'')}">${esc((t.description||'').substring(0,65))}${(t.description||'').length>65?'…':''}</td>
+        <td style="padding:5px 8px;text-align:right;font-family:var(--mono);font-size:11px;color:${t.amount>0?'var(--green)':'var(--red)'};">${fmt(t.amount)}</td>
+        <td style="padding:5px 8px;min-width:180px;">
+          <select style="border:1px solid var(--border);border-radius:6px;padding:2px 5px;font-size:10.5px;background:var(--surface);color:var(--text);width:100%;"
+            onchange="categorizeTxnInGroup(${t.id}, this.value, ${gi})">
+            ${selOpts}
+          </select>
+        </td>
+      </tr>`;
+    }).join('');
+
+    html += `<div style="margin-bottom:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+      <div style="padding:9px 14px;background:var(--surface2);display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleGrp(${gi}, event)">
+        <span id="grp-arrow-${gi}" style="font-size:10px;color:var(--muted);flex-shrink:0;user-select:none;transition:transform .15s;">▶</span>
+        <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;background:${dir==='CR'?'var(--green-lo)':'var(--red-lo)'};color:${dirColor};flex-shrink:0;">${dir}</span>
+        <span style="flex:1;font-size:12px;font-weight:700;">${esc(g.group_key)}</span>
+        <span style="font-size:10px;color:var(--muted);white-space:nowrap;">${doneCnt}/${txns.length} categorized · ${fmt(g.total)}</span>
+        ${allDone ? '<span style="font-size:9px;background:var(--green-lo);color:var(--green);padding:2px 7px;border-radius:9px;font-weight:700;white-space:nowrap;">✓ ALL DONE</span>' : ''}
+        <select style="border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;background:var(--surface);color:var(--text);min-width:170px;flex-shrink:0;"
+          onchange="categorizeGroup('${esc(g.group_key)}', this.value, ${gi})" onclick="event.stopPropagation()">
+          ${groupCatOpts}
         </select>
       </div>
-      <div style="padding:8px 14px; font-size:10.5px; color:var(--text-dim);">${g.samples.map(s=>esc(s)).join(' · ')}</div>
-    </div>`).join('') : '<div style="color:var(--muted);padding:20px;text-align:center;">No groups available.</div>';
+      <div id="grp-body-${gi}" style="display:none;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:var(--surface3);">
+            <th style="padding:4px 8px 4px 34px;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;">DATE</th>
+            <th style="padding:4px 8px;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;">DESCRIPTION</th>
+            <th style="padding:4px 8px;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:right;">AMOUNT</th>
+            <th style="padding:4px 8px;font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);text-align:left;">CATEGORY</th>
+          </tr></thead>
+          <tbody>${txnRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  gv.innerHTML = html;
 }
 
-async function categorizeGroup(groupKey, catId) {
+function toggleGrp(gi, e) {
+  const body = document.getElementById('grp-body-' + gi);
+  const arrow = document.getElementById('grp-arrow-' + gi);
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  if (arrow) arrow.textContent = open ? '▶' : '▼';
+}
+
+async function categorizeTxnInGroup(txnId, catId, gi) {
+  // Save individual txn category to DB
+  await fetch(`/api/statements/${statementId}/categorize`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({transaction_id: txnId, category_id: catId ? parseInt(catId) : null})
+  });
+  // Update wfTransactions in memory
+  const t = wfTransactions.find(t => t.id === txnId);
+  if (t) t.category_id = catId ? parseInt(catId) : null;
+  const done = wfTransactions.filter(t => t.category_id).length;
+  document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
+  // Refresh grouped view to update done counts and badges
+  await loadGroupedView();
+  // Re-open the expanded group
+  const body = document.getElementById('grp-body-' + gi);
+  const arrow = document.getElementById('grp-arrow-' + gi);
+  if (body) { body.style.display = 'block'; }
+  if (arrow) { arrow.textContent = '▼'; }
+}
+
+async function categorizeGroup(groupKey, catId, gi) {
+  // Save group-level category to DB (applies to all txns in group)
   await fetch(`/api/statements/${statementId}/categorize/group`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({group_key: groupKey, category_id: catId ? parseInt(catId) : null})
   });
-  // Reload wfTransactions so flat view and progress stay in sync
+  // Reload wfTransactions and grouped view
   const txnR = await fetch(`/api/statements/${statementId}/transactions`).then(r=>r.json());
   wfTransactions = txnR;
   const done = wfTransactions.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
+  await loadGroupedView();
 }
 
 document.getElementById("toggleGroupView").addEventListener("click", () => {
