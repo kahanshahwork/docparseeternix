@@ -289,14 +289,29 @@ def categorize(sid):
     correct client even if the frontend forgets to pass one."""
     b = request.json or {}
     tids = b.get("transaction_ids", [])
-    category_id = b["category_id"]
+    category_id = b.get("category_id")  # None = un-categorize
+
+    conn = get_db()
+    client_id = get_client_id_for_statement(conn, sid)
+
+    if category_id is None:
+        # Un-categorize: clear category, gst_amount, net_amount
+        for tid in tids:
+            row = conn.execute("SELECT * FROM transactions WHERE id = ?", (tid,)).fetchone()
+            if not row:
+                continue
+            conn.execute(
+                "UPDATE transactions SET category_id = NULL, gst_amount = 0, net_amount = ? WHERE id = ?",
+                (row["amount"], tid),
+            )
+        conn.commit()
+        log_audit("statement", sid, "categorize", f"{len(tids)} txns -> Uncategorized")
+        return jsonify({"updated": len(tids), "client_id": client_id})
 
     cat = category_master.get_category(category_id)
     if not cat:
         return jsonify({"error": "Unknown category"}), 400
 
-    conn = get_db()
-    client_id = get_client_id_for_statement(conn, sid)
     for tid in tids:
         row = conn.execute("SELECT * FROM transactions WHERE id = ?", (tid,)).fetchone()
         if not row:

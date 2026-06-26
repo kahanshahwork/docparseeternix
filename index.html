@@ -1824,8 +1824,9 @@ async function categorizeTxnInGroup(txnId, catId, stableKey) {
 }
 
 async function categorizeGroup(dir, groupKey, catId) {
-  if (!catId) return;
-  // Use cached groups data — no extra fetch needed
+  // catId is "" when user picks "— Uncategorized —" — that is valid, must save null to DB
+  const categoryId = catId ? parseInt(catId) : null;
+
   const src = dir === 'DR' ? (_lastGroupsData?.debit || []) : (_lastGroupsData?.credit || []);
   const grp = src.find(g => g.group_key === groupKey);
   if (!grp || !grp.transactions?.length) return;
@@ -1834,7 +1835,7 @@ async function categorizeGroup(dir, groupKey, catId) {
   await fetch(`/api/statements/${statementId}/categorize`, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({transaction_ids: tids, category_id: parseInt(catId)})
+    body: JSON.stringify({transaction_ids: tids, category_id: categoryId})
   });
   const txnR = await fetch(`/api/statements/${statementId}/transactions`).then(r=>r.json());
   wfTransactions = txnR;
