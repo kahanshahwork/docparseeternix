@@ -71,6 +71,9 @@ DEFAULT_CATEGORIES = [
     ("TRAVEL_INTL",         "Travel - International",       "Expense",     0, 0.0,  "G11",      470),
 
     # ── System ───────────────────────────────────────────────────────────
+    ("BANK_TRANSFER",       "Bank Transfer",                "Excluded",    0, 0.0,  "excluded", 480),
+    ("DRAWINGS",            "Drawings",                     "Excluded",    0, 0.0,  "excluded", 490),
+    ("GUARANTEE_FEES",      "Guarantee Fees",               "Excluded",    0, 0.0,  "excluded", 495),
     ("UNCATEGORIZED",       "Uncategorized",                "Excluded",    0, 0.0,  "excluded", 999),
 ]
 

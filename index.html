@@ -127,11 +127,10 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 .stmt-name { font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stmt-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
 .stmt-status { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
-.stmt-status.parsed      { background: var(--surface2); color: var(--muted); }
-.stmt-status.approved    { background: var(--amber-lo); color: var(--amber); }
+.stmt-status.parsed    { background: var(--surface2); color: var(--muted); }
+.stmt-status.approved  { background: var(--amber-lo); color: var(--amber); }
 .stmt-status.categorized { background: rgba(37,99,235,.1); color: var(--accent); }
-.stmt-status.gst_reviewed{ background: rgba(124,58,237,.1); color: #7c3aed; }
-.stmt-status.finalized   { background: var(--green-lo); color: var(--green); }
+.stmt-status.finalized { background: var(--green-lo); color: var(--green); }
 
 /* ── Parse page ── */
 .parse-layout { flex: 1; display: flex; overflow: hidden; min-height: 0; }
@@ -294,7 +293,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="nav-item disabled" data-page="categorize"><span class="step-num">3</span><span class="ic">#</span> Categorize</div>
     <div class="nav-item disabled" data-page="gst"><span class="step-num">4</span><span class="ic">%</span> GST Review</div>
     <div class="nav-item disabled" data-page="pnl"><span class="step-num">5</span><span class="ic">~</span> P&amp;L</div>
-    <div class="nav-item" data-page="consolidation"><span class="ic">📊</span> Consolidation</div>
   </div>
   <div class="nav-group">
     <div class="nav-label">Tools</div>
@@ -901,103 +899,6 @@ Use negative amounts for debits/withdrawals, positive for credits/deposits.</tex
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════════════════════════
-     PAGE: CONSOLIDATION
-════════════════════════════════════════════════════════════════════════════ -->
-<div class="page" id="page-consolidation">
-  <div class="page-header">
-    <h1>Consolidation</h1>
-    <span class="sub" id="consolPageSub">Merge statements into quarterly &amp; annual reports</span>
-    <div class="right">
-      <button class="btn" id="consolRefreshBtn">↻ Refresh</button>
-    </div>
-  </div>
-  <div class="wf-content">
-
-    <!-- Tab bar -->
-    <div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px;">
-      <button class="btn-sec" id="consolTabQuarter" onclick="switchConsolTab('quarter')" style="font-size:11.5px;font-weight:700;color:var(--accent);border-color:var(--accent);">📅 Quarter Consolidation</button>
-      <button class="btn-sec" id="consolTabAnnual" onclick="switchConsolTab('annual')" style="font-size:11.5px;">📆 Annual Consolidation</button>
-    </div>
-
-    <!-- QUARTER TAB -->
-    <div id="consolQuarterTab">
-      <div class="panel">
-        <h2>Quarter GST &amp; P&amp;L Summary</h2>
-        <p class="psub">Consolidates all bank statements for the active quarter. No transactions are duplicated.</p>
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-          <button class="btn" id="consolQuarterPreviewBtn" onclick="consolQuarterPreview()">Preview Consolidated Report</button>
-          <button class="btn btn-green" id="consolQuarterSaveBtn" onclick="consolQuarterSave()" style="display:none;">💾 Save Report</button>
-        </div>
-        <div id="consolQuarterResult" style="display:none;">
-          <!-- Per-statement breakdown -->
-          <div class="panel" style="margin-bottom:10px;">
-            <h2 style="font-size:12px;margin-bottom:8px;">📋 Statements Included</h2>
-            <div id="consolStmtBreakdown"></div>
-          </div>
-          <!-- Consolidated GST -->
-          <div class="panel" style="margin-bottom:10px;">
-            <h2 style="font-size:12px;margin-bottom:8px;">📊 Consolidated BAS Summary</h2>
-            <div id="consolGstGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:10px;"></div>
-          </div>
-          <!-- Consolidated P&L -->
-          <div class="panel">
-            <h2 style="font-size:12px;margin-bottom:8px;">📈 Consolidated P&amp;L</h2>
-            <table class="wf-table" id="consolPnlTable">
-              <thead><tr><th>Category</th><th style="text-align:right">Amount</th></tr></thead>
-              <tbody id="consolPnlBody"></tbody>
-            </table>
-          </div>
-        </div>
-        <!-- Saved reports for this quarter -->
-        <div id="consolQuarterSaved" style="margin-top:14px;display:none;">
-          <h2 style="font-size:12px;margin-bottom:6px;">💾 Saved Quarter Reports</h2>
-          <div id="consolQuarterSavedList"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ANNUAL TAB -->
-    <div id="consolAnnualTab" style="display:none;">
-      <div class="panel">
-        <h2>Annual Consolidation</h2>
-        <p class="psub">Select quarters to merge into an annual GST &amp; P&amp;L report for <span id="consolClientName">this client</span>.</p>
-        <div style="margin-bottom:12px;">
-          <label style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Select Quarters</label>
-          <div id="consolQuarterCheckboxes" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;max-height:220px;overflow-y:auto;"></div>
-        </div>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
-          <input type="text" id="consolAnnualLabel" placeholder="Label e.g. FY 2024-25" style="border:1px solid var(--border2);border-radius:8px;padding:6px 10px;font-size:12px;background:var(--surface2);color:var(--text);outline:none;min-width:180px;" />
-          <button class="btn" onclick="consolAnnualRun()">Generate Annual Report →</button>
-        </div>
-        <div id="consolAnnualResult" style="display:none;">
-          <!-- Per-quarter breakdown -->
-          <div class="panel" style="margin-bottom:10px;">
-            <h2 style="font-size:12px;margin-bottom:8px;">📋 Quarters Included</h2>
-            <div id="consolAnnualQuarterBreakdown"></div>
-          </div>
-          <div class="panel" style="margin-bottom:10px;">
-            <h2 style="font-size:12px;margin-bottom:8px;">📊 Annual BAS Summary</h2>
-            <div id="consolAnnualGstGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;"></div>
-          </div>
-          <div class="panel">
-            <h2 style="font-size:12px;margin-bottom:8px;">📈 Annual P&amp;L</h2>
-            <table class="wf-table"><thead><tr><th>Category</th><th style="text-align:right">Amount</th></tr></thead>
-            <tbody id="consolAnnualPnlBody"></tbody></table>
-          </div>
-        </div>
-        <!-- Saved annual reports -->
-        <div style="margin-top:14px;">
-          <h2 style="font-size:12px;margin-bottom:6px;">💾 Saved Annual Reports</h2>
-          <div id="consolAnnualSavedList"></div>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-
 <!-- Consolidate Quarter Modal -->
 <div class="modal-overlay" id="consolidateModal">
   <div class="modal">
@@ -1087,7 +988,6 @@ function goPage(name) {
   if (name === "categorize")   loadCategorize();
   if (name === "gst")          loadGst();
   if (name === "pnl")          loadPnl();
-  if (name === "consolidation") loadConsolPage();
   if (name === "clients")      loadClients();
   if (name === "aicategorize") loadAiCategorizePage();
   if (name === "aivision")    initAiVisionPage();
@@ -1216,21 +1116,17 @@ async function loadStatementsList() {
       list.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:10px 0;">No statements yet. Click <strong>+ Add Statement</strong> to parse your first bank statement for this quarter.</div>`;
       return;
     }
-    list.innerHTML = stmts.map(s => {
-      const statusLabels = { parsed:'Parsed', approved:'Approved', categorized:'Categorized', gst_reviewed:'GST Done', finalized:'Finalized' };
-      const statusLabel = statusLabels[s.status] || s.status;
-      return `
+    list.innerHTML = stmts.map(s => `
       <div class="stmt-card">
         <div class="stmt-bank-badge">${esc((s.bank_id || '?').toUpperCase())}</div>
         <div class="stmt-info">
           <div class="stmt-name">${esc(s.statement_name || s.filename || `Statement #${s.id}`)}</div>
           <div class="stmt-meta">Added ${s.created_at ? s.created_at.slice(0,10) : '—'} · ${s.txn_count || 0} transactions</div>
         </div>
-        <span class="stmt-status ${s.status}">${esc(statusLabel)}</span>
+        <span class="stmt-status ${s.status}">${esc(s.status)}</span>
         <button class="btn-sec" onclick="resumeStatement(${s.id})" style="font-size:11px;">Resume →</button>
         <button class="btn-sec" onclick="deleteStatement(${s.id})" style="font-size:11px;color:var(--red);border-color:var(--red-lo);">🗑</button>
-      </div>`;
-    }).join('');
+      </div>`).join('');
 
     // Show annual consolidation if 4+ quarters exist
     showAnnualConsolIfReady();
@@ -1252,36 +1148,21 @@ async function resumeStatement(id) {
   updateSidebarCtx();
   unlockNav('parse', 'approve', 'categorize', 'gst', 'pnl', 'aicategorize');
 
-  // Fetch statement meta to determine status and restore step marks
-  const stmts = activeQuarterId
-    ? await fetch(`/api/quarters/${activeQuarterId}/statements`).then(r => r.json()).catch(() => [])
-    : [];
-  const meta = stmts.find(s => s.id === id) || {};
-  const status = meta.status || 'parsed';
-
-  // Restore done-step marks based on saved status
-  const statusOrder = ['parsed', 'approved', 'categorized', 'gst_reviewed', 'finalized'];
-  const stepPages   = ['parse',  'approve',  'categorize',  'gst',          'pnl'];
-  const statusIdx   = statusOrder.indexOf(status);
-  for (let i = 0; i <= statusIdx && i < stepPages.length; i++) {
-    markDone(stepPages[i]);
-  }
-
-  // Navigate to the NEXT incomplete step
-  let targetPage = 'parse';
-  if (status === 'parsed')       targetPage = 'approve';
-  else if (status === 'approved')  targetPage = 'categorize';
-  else if (status === 'categorized') targetPage = 'gst';
-  else if (status === 'gst_reviewed') targetPage = 'pnl';
-  else if (status === 'finalized') targetPage = 'pnl'; // already done — show P&L
-
-  goPage(targetPage);
+  // Always land on Step 1 (parse page) — show the saved transactions in the table
+  // just like a fresh parse would, no re-upload needed
+  goPage('parse');
   loadSavedStatements();
 
   try {
     const r = await fetch(`/api/statements/${id}/transactions`);
     const txns = await r.json();
     if (!txns.length) return;
+
+    // Get statement meta for bank_id / name
+    const stmts = activeQuarterId
+      ? await fetch(`/api/quarters/${activeQuarterId}/statements`).then(r => r.json()).catch(() => [])
+      : [];
+    const meta = stmts.find(s => s.id === id) || {};
 
     // Pre-fill the save-as name
     document.getElementById('stmtNameInput').value = meta.statement_name || meta.filename || '';
@@ -1291,7 +1172,7 @@ async function resumeStatement(id) {
     document.getElementById('saveStmtBtn').style.background = 'var(--accent)';
     document.getElementById('workflowBtn').style.display = 'none';
 
-    // Render into the parse page table so it's visible if user goes back
+    // Render into the parse page table exactly as a fresh parse would
     renderParseResult({
       transactions: txns,
       ambiguous:    [],
@@ -1301,7 +1182,7 @@ async function resumeStatement(id) {
     });
 
     document.getElementById('sidebarFooter').textContent =
-      `${(meta.bank_id || '?').toUpperCase()} · ${txns.length} txns · ${status}`;
+      `${(meta.bank_id || '?').toUpperCase()} · ${txns.length} txns (saved)`;
 
   } catch(e) {
     console.error('Resume failed:', e);
@@ -1803,16 +1684,24 @@ async function loadCategorize() {
   if (groupedMode) {
     loadGroupedView();
   } else {
-    const catOpts = '<option value="">Uncategorized</option>' + catR.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
-    document.getElementById("categorizeBody").innerHTML = txnR.map(t => `
-      <tr>
+    // CR = Income + Excluded only | DR = Direct Cost + Expense + Excluded only
+    const crGroups = new Set(['Income', 'Excluded']);
+    const drGroups = new Set(['Direct Cost', 'Expense', 'Excluded']);
+    const crCatOpts = '<option value="">— Uncategorized —</option>' + catR.filter(c => crGroups.has(c.pnl_group)).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    const drCatOpts = '<option value="">— Uncategorized —</option>' + catR.filter(c => drGroups.has(c.pnl_group)).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    document.getElementById("categorizeBody").innerHTML = txnR.map(t => {
+      const isCr = t.amount >= 0;
+      const opts = (isCr ? crCatOpts : drCatOpts).replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`);
+      return `<tr>
         <td class="td-date">${esc(t.date)}</td>
         <td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td>
-        <td class="td-amt ${t.amount>0?'pos':'neg'}">${fmt(t.amount)}</td>
-        <td><select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);width:100%;" onchange="categorizeTxn(${t.id}, this.value)">
-          ${catOpts.replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`)}
-        </select></td>
-      </tr>`).join('');
+        <td class="td-amt ${isCr?'pos':'neg'}">${fmt(t.amount)}</td>
+        <td><span class="badge ${isCr?'cr':'dr'}" style="margin-right:4px;">${isCr?'CR':'DR'}</span>
+          <select style="border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);width:calc(100% - 36px);" onchange="categorizeTxn(${t.id}, this.value)">
+            ${opts}
+          </select></td>
+      </tr>`;
+    }).join('');
   }
 }
 
@@ -1841,12 +1730,7 @@ async function loadGroupedView() {
   _lastGroupsData = r;
 
   // Direction-filtered option lists
-  // CR = income direction → Income + BAS Excluded only
-  // DR = expense direction → Direct Cost + Expense + BAS Excluded only
-  const incomeGroups   = ['Income'];
-  const expenseGroups  = ['Direct Cost', 'Expense'];
-  const excludedGroups = ['Excluded'];
-
+  // CR = Income + Excluded | DR = Direct Cost + Expense + Excluded
   function buildOpts(pnlGroups) {
     const allowed = new Set(pnlGroups);
     return '<option value="">— Uncategorized —</option>'
@@ -1855,10 +1739,8 @@ async function loadGroupedView() {
           .map(c => `<option value="${c.id}">${esc(c.name)}</option>`)
           .join('');
   }
-  // CR = Revenue + Other Income ONLY
-  // DR = Expenses + Direct Cost ONLY
-  const crCatOpts = buildOpts(incomeGroups);
-  const drCatOpts = buildOpts([...expenseGroups, 'Direct Cost']);
+  const crCatOpts = buildOpts(['Income', 'Excluded']);
+  const drCatOpts = buildOpts(['Direct Cost', 'Expense', 'Excluded']);
   const gv = document.getElementById("groupedView");
 
   // API returns {debit:[...], credit:[...]}
@@ -2004,8 +1886,6 @@ document.getElementById("toggleGroupView").addEventListener("click", () => {
 
 document.getElementById("catContinueBtn").addEventListener("click", async () => {
   if (!statementId) return;
-  // Persist categorized status to DB
-  await fetch(`/api/statements/${statementId}/finalize_categorize`, { method: "POST" }).catch(() => {});
   markDone("categorize"); unlockNav("gst"); goPage("gst");
 });
 
@@ -2061,9 +1941,6 @@ async function patchGst(id, val) {
 }
 
 document.getElementById("gstContinueBtn").addEventListener("click", async () => {
-  if (!statementId) return;
-  // Persist gst_reviewed status to DB
-  await fetch(`/api/statements/${statementId}/finalize_gst`, { method: "POST" }).catch(() => {});
   markDone("gst"); unlockNav("pnl"); goPage("pnl");
 });
 
@@ -2125,265 +2002,10 @@ async function loadPnl() {
   html += `<div style="display:flex;gap:8px;margin-top:14px;">
     <a href="/api/statements/${statementId}/export/pnl" class="btn" style="text-decoration:none;font-size:12px;">⬇ Export P&L (.xlsx)</a>
     <a href="/api/statements/${statementId}/export/gst" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export GST (.xlsx)</a>
-    <button class="btn btn-green" onclick="finalizePnl()" style="font-size:12px;">✓ Mark as Finalized</button>
   </div>`;
 
   document.getElementById("pnlContent").innerHTML = html;
 }
-
-// ══════════════════════════════════════════════════════════════════════════
-// FINALIZE P&L
-// ══════════════════════════════════════════════════════════════════════════
-async function finalizePnl() {
-  if (!statementId) return;
-  await fetch(`/api/statements/${statementId}/finalize_pnl`, { method: "POST" }).catch(() => {});
-  markDone("pnl");
-  // Refresh statement list so card shows "finalized"
-  loadStatementsList().catch(() => {});
-  // Small feedback
-  const btn = document.querySelector('#pnlContent button[onclick="finalizePnl()"]');
-  if (btn) { btn.textContent = "✓ Finalized"; btn.disabled = true; }
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// CONSOLIDATION PAGE
-// ══════════════════════════════════════════════════════════════════════════
-let _consolActiveTab = 'quarter';
-let _consolQuarterData = null; // last previewed quarter consolidation
-
-function switchConsolTab(tab) {
-  _consolActiveTab = tab;
-  document.getElementById('consolQuarterTab').style.display   = tab === 'quarter' ? '' : 'none';
-  document.getElementById('consolAnnualTab').style.display    = tab === 'annual'  ? '' : 'none';
-  document.getElementById('consolTabQuarter').style.color     = tab === 'quarter' ? 'var(--accent)' : '';
-  document.getElementById('consolTabQuarter').style.borderColor = tab === 'quarter' ? 'var(--accent)' : '';
-  document.getElementById('consolTabAnnual').style.color      = tab === 'annual'  ? 'var(--accent)' : '';
-  document.getElementById('consolTabAnnual').style.borderColor = tab === 'annual' ? 'var(--accent)' : '';
-  if (tab === 'annual') loadConsolAnnualTab();
-}
-
-async function loadConsolPage() {
-  if (!activeQuarterId) {
-    document.getElementById('consolPageSub').textContent = 'Select a client and quarter first';
-    return;
-  }
-  document.getElementById('consolPageSub').textContent =
-    `${activeClientName || ''} · ${activeQuarterLabel || ''}`;
-  document.getElementById('consolClientName').textContent = activeClientName || 'this client';
-
-  // Reset
-  document.getElementById('consolQuarterResult').style.display = 'none';
-  document.getElementById('consolQuarterSaveBtn').style.display = 'none';
-  _consolQuarterData = null;
-
-  // Load saved quarter reports
-  loadConsolSavedQuarter();
-}
-
-function _renderGstGrid(bas, containerId) {
-  const fields = [
-    {key:'G1',  label:'G1 Total Sales'},
-    {key:'G10', label:'G10 Capital Purchases'},
-    {key:'G11', label:'G11 Non-Capital Purchases'},
-    {key:'1A',  label:'1A GST on Sales'},
-    {key:'1B',  label:'1B GST on Purchases'},
-    {key:'net_gst_payable', label:'Net GST Payable'},
-  ];
-  document.getElementById(containerId).innerHTML = fields.map(f => {
-    const val = bas[f.key] || 0;
-    const color = f.key === 'net_gst_payable' ? (val >= 0 ? 'var(--red)' : 'var(--green)') : 'var(--text)';
-    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;">
-      <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">${esc(f.label)}</div>
-      <div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${color};margin-top:3px;">${fmt(val)}</div>
-    </div>`;
-  }).join('');
-}
-
-function _renderPnlTable(pnl, tbodyId) {
-  const rows = [];
-  const pushLines = (lines, group, color) => {
-    if (!lines || !lines.length) return;
-    rows.push(`<tr><td colspan="2" style="background:var(--surface2);font-size:10px;font-weight:700;color:${color};text-transform:uppercase;padding:6px 10px;">${esc(group)}</td></tr>`);
-    lines.forEach(l => rows.push(`<tr><td style="padding-left:16px;">${esc(l.category)}</td><td style="text-align:right;font-family:var(--mono);">${fmt(l.amount)}</td></tr>`));
-  };
-  const subtotal = (label, val, color) => rows.push(
-    `<tr style="background:var(--surface2);font-weight:700;"><td style="color:${color};">${esc(label)}</td><td style="text-align:right;font-family:var(--mono);color:${color};">${fmt(val)}</td></tr>`
-  );
-  pushLines(pnl.income_lines, 'Revenue', 'var(--green)');
-  subtotal('Total Revenue', pnl.total_income || 0, 'var(--green)');
-  if (pnl.direct_cost_lines && pnl.direct_cost_lines.length) {
-    pushLines(pnl.direct_cost_lines, 'Direct Costs', 'var(--amber)');
-    subtotal('Gross Profit', pnl.gross_profit || 0, pnl.gross_profit >= 0 ? 'var(--green)' : 'var(--red)');
-  }
-  pushLines(pnl.expense_lines, 'Expenses', 'var(--red)');
-  subtotal('Total Expenses', pnl.total_expense || 0, 'var(--red)');
-  rows.push(`<tr style="background:${(pnl.net_profit||0)>=0?'var(--green-lo)':'var(--red-lo)'}"><td style="font-weight:800;font-size:13px;">Net Profit / Loss</td><td style="text-align:right;font-family:var(--mono);font-weight:800;font-size:14px;color:${(pnl.net_profit||0)>=0?'var(--green)':'var(--red)'};">${fmt(pnl.net_profit||0)}</td></tr>`);
-  document.getElementById(tbodyId).innerHTML = rows.join('');
-}
-
-async function consolQuarterPreview() {
-  if (!activeQuarterId) { alert('Select a quarter first.'); return; }
-  const btn = document.getElementById('consolQuarterPreviewBtn');
-  btn.disabled = true; btn.textContent = 'Loading…';
-  try {
-    const d = await fetch(`/api/quarters/${activeQuarterId}/consolidate/summary`).then(r => r.json());
-    if (d.error) throw new Error(d.error);
-    _consolQuarterData = d;
-
-    // Per-statement breakdown
-    document.getElementById('consolStmtBreakdown').innerHTML = (d.per_statement || []).map(s => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--surface2);border-radius:8px;margin-bottom:6px;">
-        <div style="font-size:11px;font-weight:700;color:var(--accent);min-width:60px;">${esc((s.bank_id||'?').toUpperCase())}</div>
-        <div style="flex:1;"><div style="font-size:12px;font-weight:600;">${esc(s.statement_name)}</div>
-          <div style="font-size:10px;color:var(--muted);">${s.txn_count} txns · ${s.categorized} categorized</div></div>
-        <span class="stmt-status ${s.status}">${esc(s.status)}</span>
-      </div>`).join('');
-
-    // GST
-    _renderGstGrid(d.consolidated.gst.bas || {}, 'consolGstGrid');
-    // P&L
-    _renderPnlTable(d.consolidated.pnl, 'consolPnlBody');
-
-    document.getElementById('consolQuarterResult').style.display = '';
-    document.getElementById('consolQuarterSaveBtn').style.display = '';
-  } catch(e) {
-    alert('Error: ' + e.message);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Preview Consolidated Report';
-  }
-}
-
-async function consolQuarterSave() {
-  if (!activeQuarterId) return;
-  const label = prompt('Name for this consolidated report:', `${activeQuarterLabel || 'Q'} Consolidated`);
-  if (!label) return;
-  try {
-    const d = await fetch(`/api/quarters/${activeQuarterId}/consolidate/save`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ name: label }),
-    }).then(r => r.json());
-    if (d.error) throw new Error(d.error);
-    alert(`✓ Saved: "${d.name}" (${d.txn_count} transactions)`);
-    loadConsolSavedQuarter();
-  } catch(e) {
-    alert('Error: ' + e.message);
-  }
-}
-
-async function loadConsolSavedQuarter() {
-  if (!activeQuarterId) return;
-  try {
-    const rows = await fetch(`/api/quarters/${activeQuarterId}/consolidate/saved`).then(r => r.json());
-    const container = document.getElementById('consolQuarterSaved');
-    const list = document.getElementById('consolQuarterSavedList');
-    if (!rows.length) { container.style.display = 'none'; return; }
-    container.style.display = '';
-    list.innerHTML = rows.map(r => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
-        <div style="flex:1;"><div style="font-size:12px;font-weight:700;">${esc(r.consolidation_name)}</div>
-          <div style="font-size:10px;color:var(--muted);">Saved ${(r.created_at||'').slice(0,10)}</div></div>
-        <button class="btn-sec" onclick="loadSavedQuarterReport(${r.id})" style="font-size:11px;">View →</button>
-      </div>`).join('');
-  } catch {}
-}
-
-async function loadSavedQuarterReport(cid) {
-  if (!activeQuarterId) return;
-  try {
-    const d = await fetch(`/api/quarters/${activeQuarterId}/consolidate/saved/${cid}`).then(r => r.json());
-    if (d.error) throw new Error(d.error);
-    if (!d.consolidated) { alert('No data in this saved report.'); return; }
-    document.getElementById('consolStmtBreakdown').innerHTML = `<p style="font-size:11px;color:var(--muted);">Saved report — ${d.txn_count || '?'} total transactions</p>`;
-    _renderGstGrid(d.consolidated.gst.bas || {}, 'consolGstGrid');
-    _renderPnlTable(d.consolidated.pnl, 'consolPnlBody');
-    document.getElementById('consolQuarterResult').style.display = '';
-  } catch(e) {
-    alert('Error: ' + e.message);
-  }
-}
-
-async function loadConsolAnnualTab() {
-  if (!activeClientId) return;
-  // Load quarters for checkbox selection
-  try {
-    const quarters = await fetch(`/api/quarters?client_id=${activeClientId}`).then(r => r.json());
-    document.getElementById('consolQuarterCheckboxes').innerHTML = quarters.map(q => `
-      <label style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px;">
-        <input type="checkbox" value="${q.id}" style="accent-color:var(--accent);" />
-        <span>${esc(q.label)}</span>
-        <span style="font-size:10px;color:var(--muted);margin-left:auto;">${(q.period_start||'').slice(0,10)} – ${(q.period_end||'').slice(0,10)}</span>
-      </label>`).join('') || '<p style="color:var(--muted);font-size:12px;">No quarters found for this client.</p>';
-  } catch {}
-  loadConsolSavedAnnual();
-}
-
-async function consolAnnualRun() {
-  if (!activeClientId) { alert('Select a client first.'); return; }
-  const checked = [...document.querySelectorAll('#consolQuarterCheckboxes input:checked')].map(i => parseInt(i.value));
-  if (!checked.length) { alert('Select at least one quarter.'); return; }
-  const label = document.getElementById('consolAnnualLabel').value.trim() || 'Annual Consolidation';
-  try {
-    const d = await fetch(`/api/clients/${activeClientId}/consolidate/annual`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ label, quarter_ids: checked }),
-    }).then(r => r.json());
-    if (d.error) throw new Error(d.error);
-
-    // Render per-quarter breakdown
-    document.getElementById('consolAnnualQuarterBreakdown').innerHTML = (d.per_quarter || []).map(q => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--surface2);border-radius:8px;margin-bottom:6px;">
-        <div style="flex:1;"><div style="font-size:12px;font-weight:700;">${esc(q.quarter_label)}</div>
-          <div style="font-size:10px;color:var(--muted);">${q.txn_count} txns across ${q.statement_count} statements · GST payable: ${fmt(q.gst?.bas?.net_gst_payable||0)}</div></div>
-      </div>`).join('');
-
-    _renderGstGrid(d.consolidated.gst.bas || {}, 'consolAnnualGstGrid');
-    _renderPnlTable(d.consolidated.pnl, 'consolAnnualPnlBody');
-    document.getElementById('consolAnnualResult').style.display = '';
-    loadConsolSavedAnnual();
-  } catch(e) {
-    alert('Error: ' + e.message);
-  }
-}
-
-async function loadConsolSavedAnnual() {
-  if (!activeClientId) return;
-  try {
-    const rows = await fetch(`/api/clients/${activeClientId}/consolidate/annual`).then(r => r.json());
-    const list = document.getElementById('consolAnnualSavedList');
-    if (!rows.length) { list.innerHTML = '<p style="font-size:11px;color:var(--muted);">No annual reports saved yet.</p>'; return; }
-    list.innerHTML = rows.map(r => `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
-        <div style="flex:1;"><div style="font-size:12px;font-weight:700;">${esc(r.label)}</div>
-          <div style="font-size:10px;color:var(--muted);">${(r.quarter_ids||[]).length} quarters · Saved ${(r.created_at||'').slice(0,10)}</div></div>
-        <button class="btn-sec" onclick="loadSavedAnnualReport(${r.id})" style="font-size:11px;">View →</button>
-      </div>`).join('');
-  } catch {}
-}
-
-async function loadSavedAnnualReport(aid) {
-  if (!activeClientId) return;
-  try {
-    const d = await fetch(`/api/clients/${activeClientId}/consolidate/annual/${aid}`).then(r => r.json());
-    if (d.error || !d.consolidated) { alert(d.error || 'No data'); return; }
-    document.getElementById('consolAnnualQuarterBreakdown').innerHTML = (d.per_quarter || []).map(q => `
-      <div style="display:flex;padding:8px;background:var(--surface2);border-radius:8px;margin-bottom:6px;">
-        <div style="flex:1;font-size:12px;font-weight:700;">${esc(q.quarter_label)}</div>
-        <div style="font-size:10px;color:var(--muted);">${q.txn_count} txns</div>
-      </div>`).join('');
-    _renderGstGrid(d.consolidated.gst.bas || {}, 'consolAnnualGstGrid');
-    _renderPnlTable(d.consolidated.pnl, 'consolAnnualPnlBody');
-    document.getElementById('consolAnnualResult').style.display = '';
-  } catch(e) {
-    alert('Error: ' + e.message);
-  }
-}
-
-document.getElementById('consolRefreshBtn').addEventListener('click', () => {
-  if (_consolActiveTab === 'quarter') loadConsolSavedQuarter();
-  else loadConsolAnnualTab();
-});
 
 // ══════════════════════════════════════════════════════════════════════════
 // AI CATEGORIZE PAGE
