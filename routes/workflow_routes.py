@@ -288,6 +288,7 @@ def categorize(sid):
     b = request.json or {}
     tids = b.get("transaction_ids", [])
     category_id = b.get("category_id")  # None = un-categorize
+    skip_vm = b.get("skip_vendor_memory", False)  # GST page recategorize — don't auto-write VM
 
     conn = get_db()
     client_id = get_client_id_for_statement(conn, sid)
@@ -319,7 +320,7 @@ def categorize(sid):
             "UPDATE transactions SET category_id = ?, gst_amount = ?, net_amount = ? WHERE id = ?",
             (category_id, gst["gst_amount"], gst["net_amount"], tid),
         )
-        if client_id:
+        if client_id and not skip_vm:
             vendor_memory.remember(client_id, row["description"], category_id)
     conn.commit()
     log_audit("statement", sid, "categorize", f"{len(tids)} txns -> {cat['name']}")
@@ -1413,6 +1414,40 @@ def clear_vendor_memory(client_id):
     conn.commit()
     log_audit("client", client_id, "clear_vendor_memory", f"deleted {count} patterns")
     return jsonify({"deleted": count})
+
+
+@workflow_bp.route("/statements/<int:sid>/update-vendor-memory", methods=["POST"])
+def update_vendor_memory_for_txn(sid):
+    """Overwrite vendor memory for a transaction's description with the current category.
+    Called explicitly by the user via 'Update Vendor Memory' button — always overwrites,
+    never creates a duplicate pattern."""
+    b = request.json or {}
+    txn_id = b.get("transaction_id")
+    if not txn_id:
+        return jsonify({"error": "transaction_id required"}), 400
+    conn = get_db()
+    client_id = get_client_id_for_statement(conn, sid)
+    if not client_id:
+        return jsonify({"error": "Cannot resolve client for this statement"}), 400
+    row = conn.execute("SELECT * FROM transactions WHERE id = ? AND statement_id = ?", (txn_id, sid)).fetchone()
+    if not row or not row["category_id"]:
+        return jsonify({"error": "Transaction not found or not yet categorized"}), 400
+    # Force-overwrite vendor memory: delete old pattern, insert fresh
+    key = vendor_memory.normalize_description(row["description"])
+    if key:
+        conn.execute(
+            "DELETE FROM vendor_memory WHERE client_id = ? AND pattern = ?",
+            (client_id, key),
+        )
+        conn.execute(
+            "INSERT INTO vendor_memory (client_id, pattern, category_id) VALUES (?,?,?)",
+            (client_id, key, row["category_id"]),
+        )
+        conn.commit()
+    cat = category_master.get_category(row["category_id"])
+    cat_name = cat["name"] if cat else str(row["category_id"])
+    log_audit("statement", sid, "update_vendor_memory", f"txn {txn_id} pattern '{key}' -> {cat_name}")
+    return jsonify({"updated": True, "pattern": key, "category": cat_name})
 
 
 @workflow_bp.route("/clients/<int:client_id>/vendor-memory/<int:vm_id>", methods=["DELETE"])

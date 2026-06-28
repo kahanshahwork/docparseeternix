@@ -621,7 +621,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
       <div class="psub">Edit any amount — GST and net recalculate automatically (GST = Amount ÷ 11)</div>
       <div class="wf-table-scroll">
         <table class="wf-table">
-          <thead><tr><th>Description</th><th>Category</th><th>GST?</th><th style="text-align:right">Amount (inc.GST)</th><th style="text-align:right">GST (÷11)</th><th style="text-align:right">Net (ex.GST)</th></tr></thead>
+          <thead><tr><th>Description</th><th>Category</th><th>GST?</th><th style="text-align:right">Amount (inc.GST)</th><th style="text-align:right">GST (÷11)</th><th style="text-align:right">Net (ex.GST)</th><th style="text-align:center">Vendor Memory</th></tr></thead>
           <tbody id="gstBody"></tbody>
         </table>
       </div>
@@ -1692,8 +1692,22 @@ async function loadCategorize() {
     fetch("/api/categories").then(r=>r.json()),
     fetch(`/api/statements/${statementId}/suggest`).then(r=>r.json()).catch(() => ({}))
   ]);
+  // Merge server data with any in-flight local changes to prevent revert race condition
+  if (_pendingCategorize.size > 0) {
+    txnR.forEach(serverTxn => {
+      if (_pendingCategorize.has(serverTxn.id)) {
+        // Preserve the local optimistic update for in-flight transactions
+        const localTxn = wfTransactions.find(t => t.id === serverTxn.id);
+        if (localTxn) serverTxn.category_id = localTxn.category_id;
+      }
+    });
+  }
   wfTransactions = txnR; categories = catR;
-  _vmSuggestions = sugR || {};
+  // Don't show suggestions for transactions that have pending categorize calls
+  _vmSuggestions = {};
+  Object.entries(sugR || {}).forEach(([tid, catId]) => {
+    if (!_pendingCategorize.has(parseInt(tid))) _vmSuggestions[parseInt(tid)] = catId;
+  });
   const done = txnR.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${txnR.length} categorized`;
 
@@ -1760,19 +1774,41 @@ function rejectSuggestion(txnId) {
   loadCategorize();
 }
 
+// Track in-flight categorize calls to prevent race-condition reverts
+const _pendingCategorize = new Set();
+
 async function categorizeTxn(id, catId) {
-  await fetch(`/api/statements/${statementId}/categorize`, {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({transaction_ids: [id], category_id: catId ? parseInt(catId) : null})
-  });
-  // Keep wfTransactions in sync so progress count and grouped view stay accurate
+  // Mark this txn as having a pending save so loadCategorize won't overwrite local state
+  _pendingCategorize.add(id);
+  // Optimistically update local state immediately (prevents revert if loadCategorize fires)
   const t = wfTransactions.find(t => t.id === id);
-  if (t) t.category_id = catId ? parseInt(catId) : null;
+  const newCatId = catId ? parseInt(catId) : null;
+  if (t) t.category_id = newCatId;
+  // Update suggestion cell for this row immediately (prevents stale suggestion showing)
+  delete _vmSuggestions[id];
+
+  try {
+    await fetch(`/api/statements/${statementId}/categorize`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({transaction_ids: [id], category_id: newCatId})
+    });
+  } finally {
+    _pendingCategorize.delete(id);
+  }
+
   const done = wfTransactions.filter(t => t.category_id).length;
   document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
   // If grouped view is active, reload it so it reflects the new categorization
   if (groupedMode) loadGroupedView();
+  // Update suggestion badge for this row only (flat view) - avoids full reload race
+  if (!groupedMode) {
+    const row = document.querySelector(`#categorizeBody tr select[onchange*="categorizeTxn(${id},"]`);
+    if (row) {
+      const suggCell = row.closest('tr')?.cells[3];
+      if (suggCell) suggCell.innerHTML = '<span style="color:var(--green);font-size:10px;">✓ set</span>';
+    }
+  }
 }
 
 // Store last groups response so categorizeGroup can use it without re-fetching
@@ -1947,7 +1983,15 @@ document.getElementById("catContinueBtn").addEventListener("click", async () => 
 // ── GST ───────────────────────────────────────────────────────────────────
 async function loadGst() {
   if (!statementId) return;
-  const d = await fetch(`/api/statements/${statementId}/gst`).then(r=>r.json());
+  const [d, catR] = await Promise.all([
+    fetch(`/api/statements/${statementId}/gst`).then(r=>r.json()),
+    fetch("/api/categories").then(r=>r.json())
+  ]);
+  // Build category options for re-categorize dropdowns
+  const catById = {};
+  catR.forEach(c => catById[c.id] = c);
+  const crCatOpts = '<option value="">— unset —</option>' + catR.filter(c=>['Income','Excluded'].includes(c.pnl_group)).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  const drCatOpts = '<option value="">— unset —</option>' + catR.filter(c=>['Direct Cost','Expense','Excluded'].includes(c.pnl_group)).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
 
   // Backend returns { transactions:[...], summary:{ bas:{...}, by_category:[...] } }
   const bas      = d.summary?.bas || d.bas || {};
@@ -1982,17 +2026,78 @@ async function loadGst() {
     </tr>`).join('');
 
   // Txn detail
-  document.getElementById('gstBody').innerHTML = (d.transactions||[]).map(t => `
-    <tr><td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td><td>${esc(t.category_name||'—')}</td>
-    <td style="text-align:center;">${t.gst_applicable?'✓':'—'}</td>
-    <td style="text-align:right"><input type="number" value="${t.amount}" step="0.01" style="border:none;background:transparent;font-family:var(--mono);font-size:11.5px;text-align:right;width:90px;" onchange="patchGst(${t.id},this.value)"/></td>
-    <td style="text-align:right;font-family:var(--mono);">${fmt(t.gst_amount)}</td>
-    <td style="text-align:right;font-family:var(--mono);">${fmt(t.net_amount)}</td></tr>`).join('');
+  document.getElementById('gstBody').innerHTML = (d.transactions||[]).map(t => {
+    const isCr = t.amount >= 0;
+    const opts = (isCr ? crCatOpts : drCatOpts).replace(`value="${t.category_id}"`, `value="${t.category_id}" selected`);
+    return `<tr>
+      <td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td>
+      <td style="min-width:160px;">
+        <select style="border:1px solid var(--border);border-radius:5px;padding:2px 4px;font-size:10px;background:var(--surface);color:var(--text);max-width:160px;" onchange="gstRecategorize(${t.id}, this.value, this)">
+          ${opts}
+        </select>
+      </td>
+      <td style="text-align:center;">${t.gst_applicable?'✓':'—'}</td>
+      <td style="text-align:right"><input type="number" value="${t.amount}" step="0.01" style="border:none;background:transparent;font-family:var(--mono);font-size:11.5px;text-align:right;width:90px;" onchange="patchGst(${t.id},this.value)"/></td>
+      <td style="text-align:right;font-family:var(--mono);">${fmt(t.gst_amount)}</td>
+      <td style="text-align:right;font-family:var(--mono);">${fmt(t.net_amount)}</td>
+      <td style="text-align:center;" id="vmcell-${t.id}">
+        ${t.category_id ? `<button onclick="updateVendorMemory(${t.id}, this)" style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(124,58,237,.1);color:#7c3aed;border:1px solid rgba(124,58,237,.3);cursor:pointer;font-weight:700;white-space:nowrap;">🧠 Update VM</button>` : '<span style="color:var(--muted);font-size:10px;">—</span>'}
+      </td>
+    </tr>`;
+  }).join('');
 }
 
 async function patchGst(id, val) {
   await fetch(`/api/transactions/${id}`, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify({amount: parseFloat(val)}) });
   loadGst();
+}
+
+async function gstRecategorize(txnId, catId, selectEl) {
+  // Re-categorize from GST page — updates category, recalcs GST, does NOT auto-write vendor memory
+  await fetch(`/api/statements/${statementId}/categorize`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({transaction_ids: [txnId], category_id: catId ? parseInt(catId) : null, skip_vendor_memory: true})
+  });
+  // Show "Update VM" button prompt after recategorize
+  const vmCell = document.getElementById(`vmcell-${txnId}`);
+  if (vmCell && catId) {
+    vmCell.innerHTML = `<button onclick="updateVendorMemory(${txnId}, this)" style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.3);cursor:pointer;font-weight:700;white-space:nowrap;">⚠ Update VM</button>`;
+  }
+  // Reload GST numbers to reflect new category GST rate
+  loadGst();
+}
+
+async function updateVendorMemory(txnId, btn) {
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    const res = await fetch(`/api/statements/${statementId}/update-vendor-memory`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({transaction_id: txnId})
+    });
+    const data = await res.json();
+    if (data.updated) {
+      btn.textContent = '✓ VM Updated';
+      btn.style.background = 'rgba(16,185,129,.1)';
+      btn.style.color = 'var(--green)';
+      btn.style.borderColor = 'rgba(16,185,129,.3)';
+      setTimeout(() => {
+        btn.textContent = '🧠 Update VM';
+        btn.style.background = 'rgba(124,58,237,.1)';
+        btn.style.color = '#7c3aed';
+        btn.style.borderColor = 'rgba(124,58,237,.3)';
+        btn.disabled = false;
+      }, 2000);
+    } else {
+      btn.textContent = '✗ Error';
+      btn.disabled = false;
+    }
+  } catch(e) {
+    btn.textContent = '✗ Error';
+    btn.disabled = false;
+  }
 }
 
 document.getElementById("gstContinueBtn").addEventListener("click", async () => {
@@ -2067,6 +2172,24 @@ function renderPnl(d) {
       html += subtotalRow('Gross Profit', grossProfit, grossProfit >= 0 ? 'var(--green)' : 'var(--red)');
     }
     html += renderSection('Expenses', expenseLines, totalExpense, 'var(--red)');
+
+    // Excluded transfers reconciliation note
+    const exclTransfers = d.excluded_transfers || [];
+    if (exclTransfers.length) {
+      const exclTotal = exclTransfers.reduce((s, x) => s + x.amount, 0);
+      html += `<div style="margin-top:16px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">ℹ Excluded from P&L — Transfers & Equity Movements</div>
+        ${exclTransfers.map(x => `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid var(--border);">
+          <span style="color:var(--text-dim);">${esc(x.category)}</span>
+          <span style="font-family:var(--mono);color:var(--muted);">${fmt(x.amount)}</span>
+        </div>`).join('')}
+        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;font-weight:700;">
+          <span style="color:var(--muted);">Net Transfers</span>
+          <span style="font-family:var(--mono);color:var(--muted);">${fmt(exclTotal)}</span>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;">Bank Transfers and Drawings are balance-sheet movements — excluded from P&L to avoid inflating revenue and expenses.</div>
+      </div>`;
+    }
   }
 
   const profitColor = netProfit >= 0 ? 'var(--green)' : 'var(--red)';

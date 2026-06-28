@@ -27,6 +27,15 @@ def generate_pnl(transactions: list[dict]) -> dict:
     direct_cost_net:    dict[str, float] = {}
     expense_net:        dict[str, float] = {}
 
+    # Track excluded transfers/drawings for reconciliation note
+    excluded_transfers: dict[str, float] = {}
+
+    # Known transfer/equity category names to show in reconciliation
+    TRANSFER_NAMES = {
+        "Bank Transfer (Sent)", "Bank Transfer (Received)",
+        "Drawings (Paid)", "Drawings (Received)",
+    }
+
     for t in transactions:
         cat   = t.get("category_name") or "Uncategorized"
         group = t.get("pnl_group")
@@ -45,7 +54,12 @@ def generate_pnl(transactions: list[dict]) -> dict:
         elif group == "Expense":
             expense_gross[cat] = expense_gross.get(cat, 0.0) + abs(amount)
             expense_net[cat]   = expense_net.get(cat, 0.0)   + abs(net_amt)
-        # "Excluded" → skip
+
+        elif group == "Excluded":
+            # Track known transfer/equity categories for reconciliation note only
+            if cat in TRANSFER_NAMES:
+                excluded_transfers[cat] = excluded_transfers.get(cat, 0.0) + amount
+        # Other "Excluded" → skip entirely
 
     def to_lines(d): return [{"category": k, "amount": round(v, 2)} for k, v in sorted(d.items())]
 
@@ -89,4 +103,10 @@ def generate_pnl(transactions: list[dict]) -> dict:
         "gross_profit_gross":       gross_profit_g,
         "gross_total_expense":      total_expense_g,
         "gross_net_profit":         net_profit_g,
+
+        # ── Reconciliation note — excluded transfers/equity movements ──
+        "excluded_transfers": [
+            {"category": k, "amount": round(v, 2)}
+            for k, v in sorted(excluded_transfers.items())
+        ],
     }

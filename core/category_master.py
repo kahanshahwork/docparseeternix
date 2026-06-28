@@ -72,10 +72,12 @@ DEFAULT_CATEGORIES = [
 
     # ── System ───────────────────────────────────────────────────────────
     ("ACCOUNTING_EXP",      "Accounting Expense",           "Expense",     1, 0.10, "G11",      475),
-    ("BANK_TRANSFER_OUT",   "Bank Transfer (Sent)",         "Expense",     0, 0.0,  "G11",      480),
-    ("BANK_TRANSFER_IN",    "Bank Transfer (Received)",     "Income",      0, 0.0,  "G1",       481),
-    ("DRAWINGS_PAID",       "Drawings (Paid)",              "Expense",     0, 0.0,  "G11",      490),
-    ("DRAWINGS_RECD",       "Drawings (Received)",          "Income",      0, 0.0,  "G1",       491),
+    # Bank Transfers and Drawings are balance-sheet / equity items — excluded from P&L
+    # so they do NOT inflate both income and expense sides of the statement.
+    ("BANK_TRANSFER_OUT",   "Bank Transfer (Sent)",         "Excluded",    0, 0.0,  "excluded", 480),
+    ("BANK_TRANSFER_IN",    "Bank Transfer (Received)",     "Excluded",    0, 0.0,  "excluded", 481),
+    ("DRAWINGS_PAID",       "Drawings (Paid)",              "Excluded",    0, 0.0,  "excluded", 490),
+    ("DRAWINGS_RECD",       "Drawings (Received)",          "Excluded",    0, 0.0,  "excluded", 491),
     ("GUARANTEE_FEES",      "Guarantee Fees",               "Expense",     0, 0.0,  "G11",      495),
     ("UNCATEGORIZED",       "Uncategorized",                "Excluded",    0, 0.0,  "excluded", 999),
 ]

@@ -160,6 +160,35 @@ def _migrate(conn: sqlite3.Connection):
         conn.commit()
         print("[db] Migrated: added statement_name to statements.")
 
+    # Fix: Bank Transfer and Drawings categories must be Excluded from P&L
+    # (they are balance-sheet / equity movements, not revenue or expenses).
+    # Covers both the current codes and any older variants with different codes but matching names.
+    transfer_codes = ("BANK_TRANSFER_OUT", "BANK_TRANSFER_IN", "DRAWINGS_PAID", "DRAWINGS_RECD",
+                      "DRAWINGS_IN", "DRAWINGS_OUT")
+    transfer_names = ("Bank Transfer (Sent)", "Bank Transfer (Received)",
+                      "Drawings (Paid)", "Drawings (Received)")
+    code_ph  = ",".join("?" * len(transfer_codes))
+    name_ph  = ",".join("?" * len(transfer_names))
+    wrong = conn.execute(
+        f"SELECT id, code FROM categories WHERE (code IN ({code_ph}) OR name IN ({name_ph})) AND pnl_group != 'Excluded'",
+        transfer_codes + transfer_names,
+    ).fetchall()
+    if wrong:
+        wrong_ids = [r["id"] for r in wrong]
+        wrong_id_ph = ",".join("?" * len(wrong_ids))
+        conn.execute(
+            f"UPDATE categories SET pnl_group = 'Excluded', bas_label = 'excluded' WHERE id IN ({wrong_id_ph})",
+            wrong_ids,
+        )
+        # Recalculate net_amount for affected transactions
+        conn.execute(
+            f"UPDATE transactions SET gst_amount = 0, net_amount = amount WHERE category_id IN ({wrong_id_ph})",
+            wrong_ids,
+        )
+        conn.commit()
+        codes = [r["code"] for r in wrong]
+        print(f"[db] Migrated: fixed pnl_group to Excluded for {codes}")
+
 
 def log_audit(entity_type: str, entity_id: int, action: str, detail: str = "", actor: str = "user"):
     conn = get_db()
