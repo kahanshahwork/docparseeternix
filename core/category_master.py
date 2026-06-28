@@ -72,11 +72,11 @@ DEFAULT_CATEGORIES = [
 
     # ── System ───────────────────────────────────────────────────────────
     ("ACCOUNTING_EXP",      "Accounting Expense",           "Expense",     1, 0.10, "G11",      475),
-    ("BANK_TRANSFER_IN",    "Bank Transfer (Received)",     "Income",      0, 0.0,  "G1",       476),
-    ("BANK_TRANSFER_OUT",   "Bank Transfer (Sent)",         "Expense",     0, 0.0,  "G11",      477),
-    ("DRAWINGS_IN",         "Drawings (Received)",          "Income",      0, 0.0,  "G1",       478),
-    ("DRAWINGS_OUT",        "Drawings (Paid)",              "Expense",     0, 0.0,  "G11",      479),
-    ("GUARANTEE_FEES",      "Guarantee Fees",               "Expense",     0, 0.0,  "G11",      480),
+    ("BANK_TRANSFER_OUT",   "Bank Transfer (Sent)",         "Expense",     0, 0.0,  "G11",      480),
+    ("BANK_TRANSFER_IN",    "Bank Transfer (Received)",     "Income",      0, 0.0,  "G1",       481),
+    ("DRAWINGS_PAID",       "Drawings (Paid)",              "Expense",     0, 0.0,  "G11",      490),
+    ("DRAWINGS_RECD",       "Drawings (Received)",          "Income",      0, 0.0,  "G1",       491),
+    ("GUARANTEE_FEES",      "Guarantee Fees",               "Expense",     0, 0.0,  "G11",      495),
     ("UNCATEGORIZED",       "Uncategorized",                "Excluded",    0, 0.0,  "excluded", 999),
 ]
 
@@ -116,6 +116,46 @@ def sync_new_categories():
         )
         conn.commit()
         print(f"[category_master] Added {len(missing)} new category(ies).")
+
+def sync_categories_safe():
+    """
+    Safe startup sync — NEVER wipes transactions or category_id assignments.
+    
+    What it does:
+    1. Inserts any DEFAULT_CATEGORIES codes missing from DB (new categories added in code)
+    2. Updates name/pnl_group/gst_applicable/gst_rate/bas_label for existing codes
+       so code changes (e.g. renaming a category) propagate without destroying data
+    3. Does NOT delete any categories or NULL out any transaction category_ids
+    
+    Use this instead of seed_categories() in production.
+    seed_categories() is only for first-time DB setup or intentional full reset.
+    """
+    conn = get_db()
+    existing = {r["code"]: dict(r) for r in conn.execute("SELECT * FROM categories").fetchall()}
+    
+    added = 0
+    updated = 0
+    for row in DEFAULT_CATEGORIES:
+        code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order = row
+        if code not in existing:
+            conn.execute(
+                """INSERT INTO categories (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
+                   VALUES (?,?,?,?,?,?,?)""",
+                row,
+            )
+            added += 1
+        else:
+            # Update definition fields — preserves is_active and id so FK links stay intact
+            conn.execute(
+                """UPDATE categories SET name=?, pnl_group=?, gst_applicable=?, gst_rate=?, bas_label=?, sort_order=?
+                   WHERE code=?""",
+                (name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order, code),
+            )
+            updated += 1
+    
+    conn.commit()
+    if added or updated:
+        print(f"[category_master] Sync: {added} added, {updated} updated. Zero transactions affected.")
 
 
 def list_categories(active_only: bool = True):

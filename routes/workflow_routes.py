@@ -68,10 +68,7 @@ def _hydrate_category_fields(conn, txn: dict) -> dict:
 
 # ── Categories (item 6) ─────────────────────────────────────────────────────
 
-@workflow_bp.route("/categories", methods=["GET"])
-def get_categories():
-    active_only = request.args.get("active_only", "true").lower() != "false"
-    return jsonify(category_master.list_categories(active_only=active_only))
+# get_categories replaced by get_categories_all below (supports active_only param)
 
 
 @workflow_bp.route("/categories", methods=["POST"])
@@ -1376,7 +1373,6 @@ def import_csv_excel():
 
 @workflow_bp.route("/clients/<int:client_id>/vendor-memory", methods=["GET"])
 def list_vendor_memory(client_id):
-    """List all vendor memory patterns for a client."""
     conn = get_db()
     rows = conn.execute("""
         SELECT vm.id, vm.pattern, vm.hit_count, vm.updated_at,
@@ -1391,7 +1387,6 @@ def list_vendor_memory(client_id):
 
 @workflow_bp.route("/clients/<int:client_id>/vendor-memory", methods=["DELETE"])
 def clear_vendor_memory(client_id):
-    """Wipe all vendor memory for a client — clean slate before real work."""
     conn = get_db()
     count = conn.execute(
         "SELECT COUNT(*) FROM vendor_memory WHERE client_id = ?", (client_id,)
@@ -1404,7 +1399,6 @@ def clear_vendor_memory(client_id):
 
 @workflow_bp.route("/clients/<int:client_id>/vendor-memory/<int:vm_id>", methods=["DELETE"])
 def delete_vendor_memory_entry(client_id, vm_id):
-    """Delete a single vendor memory pattern."""
     conn = get_db()
     conn.execute("DELETE FROM vendor_memory WHERE id = ? AND client_id = ?", (vm_id, client_id))
     conn.commit()
@@ -1414,75 +1408,120 @@ def delete_vendor_memory_entry(client_id, vm_id):
 @workflow_bp.route("/clients/<int:client_id>/import-bas-history", methods=["POST"])
 def import_bas_history(client_id):
     """
-    Import a previously exported categorized BAS Excel (.xlsx) for this client.
-    Reads Description + Category columns → seeds vendor_memory.
-    Only writes patterns where category name matches an existing active category.
-    body: multipart file upload — the .xlsx GST or P&L export from DocParse.
+    Import categorized BAS export (.xlsx/.csv) for this client.
+    Accepts a column mapping: { desc_col: "Description", cat_col: "Category" }
+    or auto-detects if not provided.
+    Phase 1: POST with file only → returns headers + sample rows for mapping UI.
+    Phase 2: POST with file + mapping → imports and seeds vendor_memory.
     """
-    import io as _io
+    import io as _io, json as _json
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
 
     f = request.files["file"]
     raw = f.read()
+    fname = (f.filename or "").lower()
+    mapping_raw = request.form.get("mapping")
 
+    # Parse file → list of dicts
+    rows = []
     try:
-        import openpyxl
-        wb = openpyxl.load_workbook(_io.BytesIO(raw), data_only=True)
-        ws = wb.active
-        all_rows = list(ws.iter_rows(values_only=True))
+        if fname.endswith(".csv"):
+            import csv
+            for enc in ("utf-8-sig", "utf-8", "latin-1"):
+                try:
+                    text = raw.decode(enc)
+                    rows = [dict(r) for r in csv.DictReader(_io.StringIO(text))]
+                    break
+                except Exception:
+                    continue
+        elif fname.endswith((".xlsx", ".xls")):
+            import openpyxl
+            wb = openpyxl.load_workbook(_io.BytesIO(raw), data_only=True)
+            ws = wb.active
+            all_rows = list(ws.iter_rows(values_only=True))
+            if all_rows:
+                headers = [str(h).strip() if h is not None else f"col_{i}"
+                           for i, h in enumerate(all_rows[0])]
+                rows = [{h: (str(v).strip() if v is not None else "")
+                         for h, v in zip(headers, row)} for row in all_rows[1:]]
+        else:
+            return jsonify({"error": "Unsupported file type. Use .csv, .xlsx or .xls"}), 400
     except Exception as e:
-        return jsonify({"error": f"Could not read Excel file: {e}"}), 400
+        return jsonify({"error": f"Could not read file: {e}"}), 400
 
-    if not all_rows:
-        return jsonify({"error": "Empty file"}), 400
+    if not rows:
+        return jsonify({"error": "File appears empty"}), 400
 
-    # Find Description and Category columns (case-insensitive header match)
-    headers = [str(h).strip().lower() if h else "" for h in all_rows[0]]
+    headers = list(rows[0].keys())
 
-    def _find(candidates):
-        for c in candidates:
-            if c in headers:
-                return headers.index(c)
-        return None
-
-    desc_idx = _find(["description", "details", "particulars", "narrative"])
-    cat_idx  = _find(["category", "category name", "cat"])
-
-    if desc_idx is None or cat_idx is None:
+    # Phase 1 — no mapping provided yet, return headers + sample for UI
+    if not mapping_raw:
         return jsonify({
-            "error": f"Cannot find Description and Category columns. Found: {list(all_rows[0])}"
-        }), 400
+            "phase": 1,
+            "headers": headers,
+            "sample": rows[:3],
+            "row_count": len(rows),
+        })
 
-    # Build category name → id lookup
+    # Phase 2 — mapping provided, do the import
+    try:
+        mapping = _json.loads(mapping_raw)
+    except Exception:
+        return jsonify({"error": "Invalid mapping JSON"}), 400
+
+    desc_col = mapping.get("desc_col")
+    cat_col  = mapping.get("cat_col")
+
+    if not desc_col or not cat_col:
+        return jsonify({"error": "mapping must include desc_col and cat_col"}), 400
+    if desc_col not in headers or cat_col not in headers:
+        return jsonify({"error": f"Columns not found in file. Available: {headers}"}), 400
+
     conn = get_db()
     cats = conn.execute("SELECT id, name FROM categories WHERE is_active = 1").fetchall()
     cat_by_name = {r["name"].lower().strip(): r["id"] for r in cats}
 
     learned = 0
     skipped = 0
-    for row in all_rows[1:]:
-        desc = str(row[desc_idx] or "").strip()
-        cat_name = str(row[cat_idx] or "").strip()
+    unknown_cats = set()
+
+    for row in rows:
+        desc     = str(row.get(desc_col) or "").strip()
+        cat_name = str(row.get(cat_col)  or "").strip()
         if not desc or not cat_name:
             skipped += 1
             continue
         cat_id = cat_by_name.get(cat_name.lower())
         if not cat_id:
+            unknown_cats.add(cat_name)
             skipped += 1
             continue
         vendor_memory.remember(client_id, desc, cat_id)
         learned += 1
 
-    log_audit("client", client_id, "import_bas_history", f"learned={learned}, skipped={skipped}")
-    return jsonify({"learned": learned, "skipped": skipped, "total_rows": len(all_rows) - 1})
+    log_audit("client", client_id, "import_bas_history",
+              f"learned={learned}, skipped={skipped}")
+    return jsonify({
+        "phase": 2,
+        "learned": learned,
+        "skipped": skipped,
+        "total_rows": len(rows),
+        "unknown_categories": sorted(unknown_cats)[:20],
+    })
 
 
-# ── Category Management (CRUD) ──────────────────────────────────────────────
+# ── Category CRUD ───────────────────────────────────────────────────────────
+
+@workflow_bp.route("/categories", methods=["GET"])
+def get_categories_all():
+    """Override — supports ?active_only=false for category management page."""
+    active_only = request.args.get("active_only", "true").lower() != "false"
+    return jsonify(category_master.list_categories(active_only=active_only))
+
 
 @workflow_bp.route("/categories/<int:cat_id>", methods=["PATCH"])
 def update_category(cat_id):
-    """Edit a category's name, pnl_group, gst_applicable, gst_rate, bas_label."""
     b = request.json or {}
     conn = get_db()
     allowed = {"name", "pnl_group", "gst_applicable", "gst_rate", "bas_label", "is_active"}
@@ -1502,17 +1541,76 @@ def update_category(cat_id):
 
 @workflow_bp.route("/categories/<int:cat_id>", methods=["DELETE"])
 def delete_category(cat_id):
-    """Soft-delete a category (sets is_active=0). Hard delete only if no transactions use it."""
     conn = get_db()
     in_use = conn.execute(
         "SELECT COUNT(*) FROM transactions WHERE category_id = ?", (cat_id,)
     ).fetchone()[0]
     if in_use:
-        # Soft delete — keep for historical data, just hide from dropdowns
         conn.execute("UPDATE categories SET is_active = 0 WHERE id = ?", (cat_id,))
         conn.commit()
         return jsonify({"deleted": False, "deactivated": True, "in_use": in_use,
-                        "message": f"Category is used by {in_use} transaction(s) — deactivated instead of deleted"})
+                        "message": f"Category used by {in_use} transaction(s) — deactivated instead"})
     conn.execute("DELETE FROM categories WHERE id = ?", (cat_id,))
     conn.commit()
     return jsonify({"deleted": True})
+
+
+# ── Approve & Learn — send approved+categorized txns to vendor memory ───────
+
+@workflow_bp.route("/statements/<int:sid>/approve-and-learn", methods=["POST"])
+def approve_and_learn(sid):
+    """
+    Explicit user action: 'I confirm these categorizations are correct,
+    add them to vendor memory for future suggestions.'
+    Only writes transactions that are both approved AND have a category.
+    This is the ONLY path that should write to vendor_memory for new transactions.
+    """
+    conn = get_db()
+    client_id = get_client_id_for_statement(conn, sid)
+    if not client_id:
+        return jsonify({"error": "No client linked to this statement"}), 400
+
+    rows = conn.execute(
+        """SELECT * FROM transactions
+           WHERE statement_id = ? AND approved = 1 AND category_id IS NOT NULL""",
+        (sid,)
+    ).fetchall()
+
+    if not rows:
+        return jsonify({"learned": 0, "message": "No approved+categorized transactions found"})
+
+    for t in rows:
+        vendor_memory.remember(client_id, t["description"], t["category_id"])
+
+    conn.commit()
+    log_audit("statement", sid, "approve_and_learn", f"{len(rows)} patterns sent to vendor memory")
+    return jsonify({"learned": len(rows), "client_id": client_id})
+
+
+# ── Finalize steps ───────────────────────────────────────────────────────────
+
+@workflow_bp.route("/statements/<int:sid>/finalize_categorize", methods=["POST"])
+def finalize_categorize(sid):
+    conn = get_db()
+    conn.execute("UPDATE statements SET status = 'categorized' WHERE id = ?", (sid,))
+    conn.commit()
+    log_audit("statement", sid, "finalize_categorize")
+    return jsonify({"status": "categorized"})
+
+
+@workflow_bp.route("/statements/<int:sid>/finalize_gst", methods=["POST"])
+def finalize_gst(sid):
+    conn = get_db()
+    conn.execute("UPDATE statements SET status = 'gst_reviewed' WHERE id = ?", (sid,))
+    conn.commit()
+    log_audit("statement", sid, "finalize_gst")
+    return jsonify({"status": "gst_reviewed"})
+
+
+@workflow_bp.route("/statements/<int:sid>/finalize_pnl", methods=["POST"])
+def finalize_pnl(sid):
+    conn = get_db()
+    conn.execute("UPDATE statements SET status = 'finalized' WHERE id = ?", (sid,))
+    conn.commit()
+    log_audit("statement", sid, "finalize_pnl")
+    return jsonify({"status": "finalized"})

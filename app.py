@@ -11,12 +11,11 @@ load_dotenv()
 from flask import Flask
 from detector import registry
 from core.db import init_db
-from core.category_master import seed_categories
+from core.category_master import sync_categories_safe
 from routes.parser_routes import parser_bp
 from routes.workflow_routes import workflow_bp
 from routes.ocr_routes import ocr_bp
 from routes.import_export_routes import ie_bp
-from routes.consolidation_routes import consolidation_bp
 import os
 
 
@@ -25,13 +24,12 @@ def create_app():
     registry.auto_register(os.path.join(os.path.dirname(__file__), "parsers"))
 
     init_db()
-    seed_categories()
+    sync_categories_safe()
 
     app.register_blueprint(parser_bp)
     app.register_blueprint(workflow_bp)
     app.register_blueprint(ocr_bp)
     app.register_blueprint(ie_bp)
-    app.register_blueprint(consolidation_bp)
     return app
 
 
