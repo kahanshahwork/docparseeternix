@@ -66,7 +66,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 
 /* ── App body ── */
 .app-body { flex: 1; display: flex; min-width: 0; height: 100%; overflow: hidden; }
-.page { display: none; flex: 1; min-width: 0; max-width: 100%; overflow: hidden; flex-direction: column; }
+.page { display: none; flex: 1; min-width: 0; overflow: hidden; flex-direction: column; }
 .page.active { display: flex; }
 
 /* ── Page header ── */
@@ -95,7 +95,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 .wf-table td { padding: 8px 10px; }
 
 /* ── Cards / panels ── */
-.wf-content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 20px; box-sizing: border-box; }
+.wf-content { flex: 1; overflow-y: auto; padding: 20px; }
 .panel { background: var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:14px; box-shadow: var(--shadow); }
 .panel h2 { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
 .psub { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; }
@@ -299,8 +299,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="nav-item" data-page="aicategorize"><span class="ic">🤖</span> AI Categorize</div>
     <div class="nav-item" data-page="aivision"><span class="ic">🔍</span> AI Vision</div>
     <div class="nav-item" id="chatToggleNav"><span class="ic">≡</span> AI Chat</div>
-    <div class="nav-item" data-page="catmanage"><span class="ic">🏷</span> Categories</div>
-    <div class="nav-item" data-page="vendormemory"><span class="ic">🧠</span> Vendor Memory</div>
   </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded</div>
 </aside>
@@ -569,7 +567,6 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <span class="sub" id="catProgress"></span>
     <div class="right">
       <button class="btn-sec" id="toggleGroupView">Switch to Grouped View</button>
-      <button class="btn" id="saveLearnBtn" style="background:var(--green);">💾 Save &amp; Learn</button>
       <button class="btn" id="catContinueBtn">Continue to GST Review →</button>
     </div>
   </div>
@@ -581,7 +578,7 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
       <div id="flatView">
         <div class="wf-table-scroll">
           <table class="wf-table">
-            <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Category</th></tr></thead>
+            <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th><th>Suggestion</th><th>Category</th></tr></thead>
             <tbody id="categorizeBody"></tbody>
           </table>
         </div>
@@ -597,7 +594,10 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
   <div class="page-header">
     <h1>GST Review</h1>
     <span class="sub">ATO BAS summary · Worksheet method · Editable amounts</span>
-    <div class="right"><button class="btn" id="gstContinueBtn">Approve GST &amp; Generate P&amp;L →</button></div>
+    <div class="right">
+      <a id="gstExportBtn" href="#" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export GST (.xlsx)</a>
+      <button class="btn" id="gstContinueBtn">Approve GST &amp; Generate P&amp;L →</button>
+    </div>
   </div>
   <div class="wf-content">
     <div class="panel">
@@ -635,7 +635,11 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
 <div class="page" id="page-pnl">
   <div class="page-header">
     <h1>Profit &amp; Loss</h1>
-    <span class="sub">Generated from categorized, GST-exclusive (net) amounts</span>
+    <span class="sub" id="pnlViewSub">Showing Net P&amp;L (ex-GST on expenses) — accounting view</span>
+    <div class="right" style="display:flex;gap:8px;">
+      <button class="btn-sec" id="pnlToggleView" onclick="togglePnlView()">Switch to Gross View</button>
+      <a id="pnlExportBtn" href="#" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export P&amp;L (.xlsx)</a>
+    </div>
   </div>
   <div class="wf-content">
     <div class="panel" id="pnlContent"></div>
@@ -947,138 +951,6 @@ Use negative amounts for debits/withdrawals, positive for credits/deposits.</tex
 </div>
 
 
-<!-- ══════════════════════════════════════════════════════════════════════════
-     PAGE: CATEGORY MANAGEMENT
-════════════════════════════════════════════════════════════════════════════ -->
-<div class="page" id="page-catmanage">
-  <div class="page-header">
-    <h1>Category Management</h1>
-    <span class="sub">Add, edit or deactivate BAS categories</span>
-    <div class="right">
-      <button class="btn" id="addCatBtn">+ Add Category</button>
-    </div>
-  </div>
-  <div class="wf-content">
-    <div class="panel" id="catFormPanel" style="display:none;margin-bottom:14px;">
-      <h2 id="catFormTitle" style="margin-bottom:10px;">Add Category</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
-        <div>
-          <label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Category Name *</label>
-          <input type="text" id="catFormName" placeholder="e.g. Accounting Expense" style="width:100%;margin-top:5px;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface2);color:var(--text);font-size:12px;outline:none;" />
-        </div>
-        <div>
-          <label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">Nature (P&amp;L Group) *</label>
-          <select id="catFormPnl" style="width:100%;margin-top:5px;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface2);color:var(--text);font-size:12px;outline:none;">
-            <option value="Income">Income</option>
-            <option value="Direct Cost">Direct Cost</option>
-            <option value="Expense" selected>Expense</option>
-            <option value="Excluded">Excluded (not in BAS/P&amp;L)</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;">GST Effect *</label>
-          <select id="catFormGst" style="width:100%;margin-top:5px;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface2);color:var(--text);font-size:12px;outline:none;">
-            <option value="gst">GST Applies (10%)</option>
-            <option value="free">GST Free (0% — flows through BAS &amp; P&amp;L)</option>
-            <option value="excluded">Excluded from BAS &amp; P&amp;L</option>
-          </select>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:12px;">
-        <button class="btn btn-green" onclick="saveCatForm()">💾 Save Category</button>
-        <button class="btn-sec" onclick="closeCatForm()">Cancel</button>
-      </div>
-      <input type="hidden" id="catFormId" value="" />
-    </div>
-    <div class="panel">
-      <h2 style="margin-bottom:12px;">All Categories</h2>
-      <div class="wf-table-scroll">
-        <table class="wf-table">
-          <thead><tr>
-            <th>Category Name</th><th>Nature</th><th>GST Effect</th><th>BAS Label</th><th>Status</th><th>Actions</th>
-          </tr></thead>
-          <tbody id="catManageBody"></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
-
-
-<!-- ══════════════════════════════════════════════════════════════════════════
-     PAGE: VENDOR MEMORY
-════════════════════════════════════════════════════════════════════════════ -->
-<div class="page" id="page-vendormemory">
-  <div class="page-header">
-    <h1>Vendor Memory</h1>
-    <span class="sub" id="vmPageSub">Select a client to view learned patterns</span>
-    <div class="right">
-      <button class="btn-sec" onclick="loadVendorMemory()">↻ Refresh</button>
-      <button class="btn btn-red" onclick="clearVendorMemory()">🗑 Clear All</button>
-    </div>
-  </div>
-  <div class="wf-content">
-
-    <!-- Import BAS History -->
-    <div class="panel" style="margin-bottom:14px;">
-      <h2 style="margin-bottom:6px;">Import Past BAS History</h2>
-      <p class="psub">Upload a categorized BAS export (CSV or Excel). Map which column is Description and which is Category. Only verified past BAS exports should be imported here.</p>
-
-      <!-- Step 1: file selection -->
-      <div id="vmImportStep1">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <input type="file" id="basHistoryFile" accept=".xlsx,.xls,.csv" style="font-size:12px;" />
-          <button class="btn" onclick="basImportReadHeaders()">Read Columns →</button>
-        </div>
-      </div>
-
-      <!-- Step 2: column mapping (hidden until headers loaded) -->
-      <div id="vmImportStep2" style="display:none;margin-top:12px;">
-        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Map Columns</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">
-          <div>
-            <label style="font-size:11px;font-weight:600;">Description Column *</label>
-            <select id="vmDescCol" style="width:100%;margin-top:4px;padding:7px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface2);color:var(--text);font-size:12px;outline:none;"></select>
-          </div>
-          <div>
-            <label style="font-size:11px;font-weight:600;">Category Column *</label>
-            <select id="vmCatCol" style="width:100%;margin-top:4px;padding:7px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface2);color:var(--text);font-size:12px;outline:none;"></select>
-          </div>
-        </div>
-        <div id="vmImportSample" style="font-size:10.5px;color:var(--text-dim);margin-bottom:10px;background:var(--surface2);border-radius:8px;padding:8px 10px;"></div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-green" onclick="basImportRun()">Import &amp; Learn →</button>
-          <button class="btn-sec" onclick="basImportReset()">Reset</button>
-        </div>
-      </div>
-
-      <div id="basImportResult" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;font-size:12px;"></div>
-    </div>
-
-    <!-- Patterns table -->
-    <div class="panel">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-        <h2>Learned Patterns <span id="vmCount" style="font-size:11px;color:var(--muted);font-weight:400;"></span></h2>
-        <input type="text" id="vmSearch" placeholder="Search patterns or categories…" oninput="filterVmTable()" style="padding:6px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface2);color:var(--text);font-size:11.5px;outline:none;width:220px;" />
-      </div>
-      <div class="wf-table-scroll">
-        <table class="wf-table">
-          <thead><tr>
-            <th>Pattern (normalized description)</th>
-            <th>Category</th><th>Nature</th><th>GST</th>
-            <th style="text-align:center">Hits</th>
-            <th>Updated</th><th></th>
-          </tr></thead>
-          <tbody id="vmTableBody"></tbody>
-        </table>
-      </div>
-      <div id="vmEmpty" style="display:none;padding:30px;text-align:center;color:var(--muted);font-size:12px;">No learned patterns yet for this client.</div>
-    </div>
-
-  </div>
-</div>
-
-
 <script>
 // ══════════════════════════════════════════════════════════════════════════
 // GLOBALS
@@ -1091,6 +963,7 @@ let statementId = null;
 let categories = [];
 let wfTransactions = [];
 let _vmSuggestions = {};
+let _pnlShowGross = false;
 let groupedMode = false;
 
 // Client/quarter/statement context
@@ -1124,8 +997,11 @@ function goPage(name) {
   if (name === "categorize")   loadCategorize();
   if (name === "gst")          loadGst();
   if (name === "pnl")          loadPnl();
-  if (name === "catmanage")    loadCatManage();
-  if (name === "vendormemory") loadVendorMemory();
+  if (name === "gst") {
+    // Update GST export href dynamically
+    const gstExp = document.getElementById('gstExportBtn');
+    if (gstExp && statementId) gstExp.href = `/api/statements/${statementId}/export/gst`;
+  }
   if (name === "clients")      loadClients();
   if (name === "aicategorize") loadAiCategorizePage();
   if (name === "aivision")    initAiVisionPage();
@@ -1824,30 +1700,64 @@ async function loadCategorize() {
   if (groupedMode) {
     loadGroupedView();
   } else {
-    // CR = Income + Excluded | DR = Direct Cost + Expense + Excluded
+    // Direction-filtered options: CR=Income+Excluded | DR=DirectCost+Expense+Excluded
     const crGroups = new Set(['Income','Excluded']);
     const drGroups = new Set(['Direct Cost','Expense','Excluded']);
     const crCatOpts = '<option value="">— Uncategorized —</option>' + catR.filter(c=>crGroups.has(c.pnl_group)).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
     const drCatOpts = '<option value="">— Uncategorized —</option>' + catR.filter(c=>drGroups.has(c.pnl_group)).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+    // Build category name lookup for suggestion display
+    const catById = {}; catR.forEach(c => catById[c.id] = c.name);
     document.getElementById("categorizeBody").innerHTML = txnR.map(t => {
       const isCr = t.amount >= 0;
       const sugCatId = !t.category_id && _vmSuggestions[t.id] ? _vmSuggestions[t.id] : null;
-      const effectiveCatId = t.category_id || sugCatId;
+      const effectiveCatId = t.category_id || sugCatId || '';
       const opts = (isCr ? crCatOpts : drCatOpts).replace(`value="${effectiveCatId}"`, `value="${effectiveCatId}" selected`);
-      const suggBadge = sugCatId ? `<span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(124,58,237,.1);color:#7c3aed;margin-left:4px;">🧠</span>` : '';
+      // Suggestion cell: show Accept button if suggestion exists and not yet categorized
+      let suggCell = '<span style="color:var(--muted);font-size:10px;">—</span>';
+      if (sugCatId && !t.category_id) {
+        const sugName = catById[sugCatId] || '?';
+        suggCell = `<div style="display:flex;flex-direction:column;gap:2px;">
+          <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(124,58,237,.1);color:#7c3aed;">🧠 ${esc(sugName)}</span>
+          <div style="display:flex;gap:3px;">
+            <button onclick="acceptSuggestion(${t.id},${sugCatId})" style="font-size:9px;padding:1px 6px;border-radius:4px;background:var(--green);color:#fff;border:none;cursor:pointer;font-weight:700;">✓ Accept</button>
+            <button onclick="rejectSuggestion(${t.id})" style="font-size:9px;padding:1px 6px;border-radius:4px;background:var(--surface2);color:var(--muted);border:1px solid var(--border);cursor:pointer;">✕</button>
+          </div>
+        </div>`;
+      } else if (t.category_id) {
+        suggCell = '<span style="color:var(--green);font-size:10px;">✓ set</span>';
+      }
       return `<tr>
         <td class="td-date">${esc(t.date)}</td>
-        <td class="td-desc" title="${esc(t.description)}">${esc(t.description)}${suggBadge}</td>
+        <td class="td-desc" title="${esc(t.description)}">${esc(t.description)}</td>
         <td class="td-amt ${isCr?'pos':'neg'}">${fmt(t.amount)}</td>
-        <td style="display:flex;align-items:center;gap:4px;">
-          <span class="badge ${isCr?'cr':'dr'}">${isCr?'CR':'DR'}</span>
-          <select style="flex:1;border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;background:var(--surface);color:var(--text);" onchange="categorizeTxn(${t.id}, this.value)">
+        <td style="min-width:120px;">${suggCell}</td>
+        <td style="min-width:160px;"><span class="badge ${isCr?'cr':'dr'}" style="margin-right:4px;">${isCr?'CR':'DR'}</span>
+          <select style="border:1px solid var(--border);border-radius:6px;padding:3px 5px;font-size:11px;background:var(--surface);color:var(--text);max-width:180px;" onchange="categorizeTxn(${t.id}, this.value)">
             ${opts}
           </select>
         </td>
       </tr>`;
     }).join('');
   }
+}
+
+async function acceptSuggestion(txnId, catId) {
+  await fetch(`/api/statements/${statementId}/categorize`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({transaction_ids:[txnId], category_id:catId})
+  });
+  // Update local state and re-render
+  const t = wfTransactions.find(t=>t.id===txnId);
+  if (t) t.category_id = catId;
+  delete _vmSuggestions[txnId];
+  const done = wfTransactions.filter(t=>t.category_id).length;
+  document.getElementById("catProgress").textContent = `${done} / ${wfTransactions.length} categorized`;
+  loadCategorize();
+}
+
+function rejectSuggestion(txnId) {
+  delete _vmSuggestions[txnId];
+  loadCategorize();
 }
 
 async function categorizeTxn(id, catId) {
@@ -1874,7 +1784,7 @@ async function loadGroupedView() {
   const r = await fetch(`/api/statements/${statementId}/groups`).then(r=>r.json());
   _lastGroupsData = r;
 
-  // Direction-filtered option lists — CR: Income+Excluded | DR: DirectCost+Expense+Excluded
+  // Direction-filtered: CR=Income+Excluded | DR=DirectCost+Expense+Excluded
   function buildOpts(pnlGroups) {
     const allowed = new Set(pnlGroups);
     return '<option value="">— Uncategorized —</option>'
@@ -2028,21 +1938,6 @@ document.getElementById("toggleGroupView").addEventListener("click", () => {
   loadCategorize();
 });
 
-// Save & Learn — explicit button to send approved+categorized txns to vendor memory
-document.getElementById("saveLearnBtn").addEventListener("click", async () => {
-  if (!statementId) return;
-  const btn = document.getElementById("saveLearnBtn");
-  btn.disabled = true; btn.textContent = "Saving…";
-  try {
-    const d = await fetch(`/api/statements/${statementId}/approve-and-learn`, {method:"POST"}).then(r=>r.json());
-    btn.textContent = d.learned ? `✓ Saved (${d.learned} patterns learned)` : "✓ Saved (no new patterns)";
-    btn.style.background = "var(--green)";
-    setTimeout(() => { btn.textContent = "💾 Save & Learn"; btn.disabled = false; }, 2500);
-  } catch(e) {
-    btn.textContent = "Error — try again"; btn.disabled = false;
-  }
-});
-
 document.getElementById("catContinueBtn").addEventListener("click", async () => {
   if (!statementId) return;
   await fetch(`/api/statements/${statementId}/finalize_categorize`, {method:"POST"}).catch(()=>{});
@@ -2107,20 +2002,29 @@ document.getElementById("gstContinueBtn").addEventListener("click", async () => 
 });
 
 // ── P&L ──────────────────────────────────────────────────────────────────
-async function loadPnl() {
-  if (!statementId) return;
-  // Backend returns: {income_lines, direct_cost_lines, expense_lines,
-  //                   total_income, total_direct_cost, gross_profit, total_expense, net_profit}
-  const d = await fetch(`/api/statements/${statementId}/pnl`).then(r=>r.json());
+let _pnlData = null;
 
-  const incomeLines     = d.income_lines      || [];
-  const directCostLines = d.direct_cost_lines || [];
-  const expenseLines    = d.expense_lines     || [];
-  const totalIncome     = d.total_income      || 0;
-  const totalDirectCost = d.total_direct_cost || 0;
-  const grossProfit     = d.gross_profit      || 0;
-  const totalExpense    = d.total_expense     || 0;
-  const netProfit       = d.net_profit        || 0;
+function togglePnlView() {
+  _pnlShowGross = !_pnlShowGross;
+  document.getElementById('pnlToggleView').textContent = _pnlShowGross ? 'Switch to Net View' : 'Switch to Gross View';
+  document.getElementById('pnlViewSub').textContent = _pnlShowGross
+    ? 'Showing Gross P&L (GST-inclusive bank amounts) — matches DR/CR net'
+    : 'Showing Net P&L (ex-GST on expenses) — accounting/tax view';
+  renderPnl(_pnlData);
+}
+
+function renderPnl(d) {
+  if (!d) return;
+  const g = _pnlShowGross; // gross mode
+
+  const incomeLines     = (g ? d.gross_income_lines      : d.income_lines)      || [];
+  const directCostLines = (g ? d.gross_direct_cost_lines : d.direct_cost_lines) || [];
+  const expenseLines    = (g ? d.gross_expense_lines     : d.expense_lines)     || [];
+  const totalIncome     = (g ? d.gross_total_income      : d.total_income)      || 0;
+  const totalDirectCost = (g ? d.gross_total_direct_cost : d.total_direct_cost) || 0;
+  const grossProfit     = (g ? d.gross_profit_gross      : d.gross_profit)      || 0;
+  const totalExpense    = (g ? d.gross_total_expense     : d.total_expense)     || 0;
+  const netProfit       = (g ? d.gross_net_profit        : d.net_profit)        || 0;
 
   function renderSection(title, lines, total, color) {
     if (!lines.length) return '';
@@ -2129,9 +2033,9 @@ async function loadPnl() {
         <span style="font-size:12px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.4px;">${title}</span>
         <span style="font-family:var(--mono);font-weight:700;font-size:13px;color:${color};">${fmt(total)}</span>
       </div>
-      ${lines.map(c => `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border);">
-        <span style="color:var(--text-dim);">${esc(c.category)}</span>
-        <span style="font-family:var(--mono);color:var(--text);">${fmt(c.amount)}</span>
+      ${lines.map(ln => `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border);">
+        <span style="color:var(--text-dim);">${esc(ln.category)}</span>
+        <span style="font-family:var(--mono);color:var(--text);">${fmt(ln.amount)}</span>
       </div>`).join('')}
     </div>`;
   }
@@ -2144,10 +2048,19 @@ async function loadPnl() {
   }
 
   let html = '';
-
   if (!incomeLines.length && !directCostLines.length && !expenseLines.length) {
     html = '<div style="color:var(--muted);padding:20px;text-align:center;">No categorized transactions yet. Complete the Categorize step first.</div>';
   } else {
+    // GST note panel
+    if (!g) {
+      html += `<div style="padding:8px 12px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:8px;margin-bottom:14px;font-size:11px;color:#7c3aed;">
+        <strong>Net P&L view:</strong> Income shown GST-inclusive · Expenses shown ex-GST (GST stripped). Switch to Gross view to match bank DR/CR net.
+      </div>`;
+    } else {
+      html += `<div style="padding:8px 12px;background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.2);border-radius:8px;margin-bottom:14px;font-size:11px;color:var(--accent);">
+        <strong>Gross P&L view:</strong> All amounts at GST-inclusive bank statement values. Net profit here equals the bank DR/CR net of $${fmt(netProfit)}.
+      </div>`;
+    }
     html += renderSection('Revenue', incomeLines, totalIncome, 'var(--green)');
     if (directCostLines.length) {
       html += renderSection('Direct Costs', directCostLines, totalDirectCost, 'var(--amber)');
@@ -2156,244 +2069,25 @@ async function loadPnl() {
     html += renderSection('Expenses', expenseLines, totalExpense, 'var(--red)');
   }
 
+  const profitColor = netProfit >= 0 ? 'var(--green)' : 'var(--red)';
   html += `<div style="padding:14px;background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-radius:10px;display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
     <span style="font-size:14px;font-weight:700;">Net Profit / Loss</span>
-    <span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</span>
-  </div>`;
-
-  html += `<div style="display:flex;gap:8px;margin-top:14px;">
-    <a href="/api/statements/${statementId}/export/pnl" class="btn" style="text-decoration:none;font-size:12px;">⬇ Export P&L (.xlsx)</a>
-    <a href="/api/statements/${statementId}/export/gst" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export GST (.xlsx)</a>
+    <span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${profitColor};">${fmt(netProfit)}</span>
   </div>`;
 
   document.getElementById("pnlContent").innerHTML = html;
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════════════════
-// CATEGORY MANAGEMENT
-// ══════════════════════════════════════════════════════════════════════════
-
-async function loadCatManage() {
-  const tbody = document.getElementById('catManageBody');
-  tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;color:var(--muted);">Loading…</td></tr>';
-  try {
-    const cats = await fetch('/api/categories?active_only=false').then(r=>r.json());
-    if (!cats.length) { tbody.innerHTML = '<tr><td colspan="6" style="padding:16px;color:var(--muted);">No categories.</td></tr>'; return; }
-    tbody.innerHTML = cats.map(cat => {
-      const gstLabel = cat.pnl_group==='Excluded' ? '<span style="color:var(--muted);font-size:11px;">Excl. from BAS</span>'
-                     : cat.gst_applicable ? '<span style="color:var(--green);font-weight:700;font-size:11px;">GST 10%</span>'
-                     : '<span style="color:var(--amber);font-weight:700;font-size:11px;">GST Free</span>';
-      const basL = cat.bas_label==='excluded' ? '—' : `<span class="badge cr">${esc(cat.bas_label)}</span>`;
-      const statusL = cat.is_active ? '<span style="color:var(--green);font-size:11px;font-weight:700;">Active</span>'
-                                    : '<span style="color:var(--muted);font-size:11px;font-weight:700;">Inactive</span>';
-      return `<tr style="${!cat.is_active?'opacity:.5':''}">
-        <td style="font-weight:600;">${esc(cat.name)}</td>
-        <td><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--surface2);color:var(--text-dim);">${esc(cat.pnl_group)}</span></td>
-        <td>${gstLabel}</td>
-        <td>${basL}</td>
-        <td>${statusL}</td>
-        <td style="white-space:nowrap;">
-          <button class="btn-sec" onclick="editCat(${cat.id},'${esc(cat.name).replace(/'/g,"\'")}','${cat.pnl_group}',${cat.gst_applicable},${cat.is_active})" style="font-size:10px;padding:2px 8px;">Edit</button>
-          <button class="btn-sec" onclick="toggleCatActive(${cat.id},${cat.is_active})" style="font-size:10px;padding:2px 8px;color:${cat.is_active?'var(--amber)':'var(--green)'};">${cat.is_active?'Deactivate':'Activate'}</button>
-          <button class="btn-sec" onclick="deleteCat(${cat.id})" style="font-size:10px;padding:2px 8px;color:var(--red);">Delete</button>
-        </td>
-      </tr>`;
-    }).join('');
-  } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);padding:12px;">Error: ${esc(e.message)}</td></tr>`;
-  }
+async function loadPnl() {
+  if (!statementId) return;
+  _pnlData = await fetch(`/api/statements/${statementId}/pnl`).then(r=>r.json());
+  // Update P&L export href
+  const pnlExp = document.getElementById('pnlExportBtn');
+  if (pnlExp) pnlExp.href = `/api/statements/${statementId}/export/pnl`;
+  renderPnl(_pnlData);
 }
-
-document.getElementById('addCatBtn').addEventListener('click', () => {
-  document.getElementById('catFormTitle').textContent = 'Add Category';
-  document.getElementById('catFormName').value = '';
-  document.getElementById('catFormPnl').value = 'Expense';
-  document.getElementById('catFormGst').value = 'gst';
-  document.getElementById('catFormId').value = '';
-  document.getElementById('catFormPanel').style.display = '';
-  document.getElementById('catFormPanel').scrollIntoView({behavior:'smooth'});
-});
-
-function editCat(id, name, pnl, gstApplicable, isActive) {
-  document.getElementById('catFormTitle').textContent = 'Edit Category';
-  document.getElementById('catFormName').value = name;
-  document.getElementById('catFormPnl').value = pnl;
-  document.getElementById('catFormGst').value = pnl==='Excluded' ? 'excluded' : (gstApplicable?'gst':'free');
-  document.getElementById('catFormId').value = id;
-  document.getElementById('catFormPanel').style.display = '';
-  document.getElementById('catFormPanel').scrollIntoView({behavior:'smooth'});
-}
-
-function closeCatForm() { document.getElementById('catFormPanel').style.display = 'none'; }
-
-async function saveCatForm() {
-  const name   = document.getElementById('catFormName').value.trim();
-  const pnl    = document.getElementById('catFormPnl').value;
-  const gstSel = document.getElementById('catFormGst').value;
-  const catId  = document.getElementById('catFormId').value;
-  if (!name) { alert('Category name is required.'); return; }
-  let gst_applicable=0, gst_rate=0.0, bas_label='excluded';
-  if (pnl !== 'Excluded') {
-    bas_label = pnl==='Income' ? 'G1' : 'G11';
-    if (gstSel==='gst') { gst_applicable=1; gst_rate=0.10; }
-  }
-  const payload = {name, pnl_group:pnl, gst_applicable, gst_rate, bas_label};
-  try {
-    if (catId) {
-      const d = await fetch(`/api/categories/${catId}`, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(r=>r.json());
-      if (d.error) throw new Error(d.error);
-    } else {
-      const code = name.toUpperCase().replace(/[^A-Z0-9]/g,'_').slice(0,20) + '_' + Date.now().toString().slice(-4);
-      const d = await fetch('/api/categories', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code,...payload})}).then(r=>r.json());
-      if (d.error) throw new Error(d.error);
-    }
-    closeCatForm();
-    loadCatManage();
-  } catch(e) { alert('Error: ' + e.message); }
-}
-
-async function toggleCatActive(id, isActive) {
-  await fetch(`/api/categories/${id}`, {method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({is_active:isActive?0:1})}).catch(e=>alert(e.message));
-  loadCatManage();
-}
-
-async function deleteCat(id) {
-  if (!confirm('Delete this category? If transactions use it, it will be deactivated instead of deleted.')) return;
-  const d = await fetch(`/api/categories/${id}`, {method:'DELETE'}).then(r=>r.json());
-  alert(d.deleted ? 'Category deleted.' : (d.message || 'Category deactivated.'));
-  loadCatManage();
-}
-
 
 // ══════════════════════════════════════════════════════════════════════════
-// VENDOR MEMORY
-// ══════════════════════════════════════════════════════════════════════════
-
-let _vmAllRows = [];
-let _basImportFile = null;
-let _basImportHeaders = [];
-
-async function loadVendorMemory() {
-  if (!activeClientId) {
-    document.getElementById('vmPageSub').textContent = 'Select a client first';
-    document.getElementById('vmTableBody').innerHTML = '<tr><td colspan="7" style="padding:16px;color:var(--muted);">Select a client to view their vendor memory.</td></tr>';
-    return;
-  }
-  document.getElementById('vmPageSub').textContent = `Learned patterns for ${activeClientName||'active client'}`;
-  const tbody = document.getElementById('vmTableBody');
-  tbody.innerHTML = '<tr><td colspan="7" style="padding:16px;color:var(--muted);">Loading…</td></tr>';
-  try {
-    const rows = await fetch(`/api/clients/${activeClientId}/vendor-memory`).then(r=>r.json());
-    _vmAllRows = rows;
-    document.getElementById('vmCount').textContent = `(${rows.length} patterns)`;
-    renderVmTable(rows);
-  } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);padding:12px;">Error: ${esc(e.message)}</td></tr>`;
-  }
-}
-
-function renderVmTable(rows) {
-  const tbody = document.getElementById('vmTableBody');
-  const empty = document.getElementById('vmEmpty');
-  if (!rows.length) { tbody.innerHTML = ''; empty.style.display=''; return; }
-  empty.style.display = 'none';
-  tbody.innerHTML = rows.map(r => `
-    <tr>
-      <td style="font-family:var(--mono);font-size:10.5px;color:var(--text-dim);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(r.pattern)}">${esc(r.pattern)}</td>
-      <td style="font-weight:600;">${esc(r.category_name)}</td>
-      <td><span style="font-size:10px;padding:1px 5px;border-radius:4px;background:var(--surface2);">${esc(r.pnl_group)}</span></td>
-      <td>${r.gst_applicable ? '<span style="color:var(--green);font-size:10px;font-weight:700;">GST 10%</span>' : '<span style="color:var(--amber);font-size:10px;font-weight:700;">GST Free</span>'}</td>
-      <td style="text-align:center;font-weight:700;font-family:var(--mono);">${r.hit_count}</td>
-      <td style="font-size:10px;color:var(--muted);">${(r.updated_at||'').slice(0,10)}</td>
-      <td><button class="btn-sec" onclick="deleteVmEntry(${r.id})" style="font-size:10px;padding:2px 7px;color:var(--red);">Remove</button></td>
-    </tr>`).join('');
-}
-
-function filterVmTable() {
-  const q = document.getElementById('vmSearch').value.toLowerCase();
-  renderVmTable(q ? _vmAllRows.filter(r => r.pattern.includes(q)||r.category_name.toLowerCase().includes(q)) : _vmAllRows);
-}
-
-async function deleteVmEntry(id) {
-  if (!activeClientId) return;
-  await fetch(`/api/clients/${activeClientId}/vendor-memory/${id}`, {method:'DELETE'}).catch(e=>alert(e.message));
-  loadVendorMemory();
-}
-
-async function clearVendorMemory() {
-  if (!activeClientId) { alert('Select a client first.'); return; }
-  if (!confirm(`Clear ALL learned patterns for ${activeClientName}? This cannot be undone.`)) return;
-  const d = await fetch(`/api/clients/${activeClientId}/vendor-memory`, {method:'DELETE'}).then(r=>r.json());
-  alert(`Cleared ${d.deleted} patterns for ${activeClientName}.`);
-  loadVendorMemory();
-}
-
-// BAS import — 2 phase: read headers → show mapping → import
-document.getElementById('basHistoryFile').addEventListener('change', e => {
-  _basImportFile = e.target.files[0] || null;
-});
-
-async function basImportReadHeaders() {
-  if (!_basImportFile) { alert('Select a file first.'); return; }
-  if (!activeClientId) { alert('Select a client first.'); return; }
-  const fd = new FormData();
-  fd.append('file', _basImportFile);
-  try {
-    const d = await fetch(`/api/clients/${activeClientId}/import-bas-history`, {method:'POST',body:fd}).then(r=>r.json());
-    if (d.error) throw new Error(d.error);
-    _basImportHeaders = d.headers || [];
-    // Populate column selects
-    const opts = _basImportHeaders.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');
-    document.getElementById('vmDescCol').innerHTML = opts;
-    document.getElementById('vmCatCol').innerHTML = opts;
-    // Try auto-select sensible defaults
-    const autoDesc = _basImportHeaders.findIndex(h=>/desc|detail|narr|particular/i.test(h));
-    const autoCat  = _basImportHeaders.findIndex(h=>/cat/i.test(h));
-    if (autoDesc>=0) document.getElementById('vmDescCol').selectedIndex = autoDesc;
-    if (autoCat>=0)  document.getElementById('vmCatCol').selectedIndex  = autoCat;
-    // Show sample
-    const sample = d.sample || [];
-    document.getElementById('vmImportSample').innerHTML = sample.length
-      ? `<strong>Preview (${d.row_count} rows):</strong> ` + Object.entries(sample[0]).slice(0,4).map(([k,v])=>`${esc(k)}: <em>${esc(String(v).slice(0,30))}</em>`).join(' · ')
-      : `${d.row_count} rows found`;
-    document.getElementById('vmImportStep2').style.display = '';
-  } catch(e) { alert('Error: ' + e.message); }
-}
-
-async function basImportRun() {
-  if (!_basImportFile || !activeClientId) return;
-  const descCol = document.getElementById('vmDescCol').value;
-  const catCol  = document.getElementById('vmCatCol').value;
-  if (!descCol || !catCol) { alert('Select both columns.'); return; }
-  if (descCol === catCol) { alert('Description and Category columns must be different.'); return; }
-  const fd = new FormData();
-  fd.append('file', _basImportFile);
-  fd.append('mapping', JSON.stringify({desc_col:descCol, cat_col:catCol}));
-  const resultDiv = document.getElementById('basImportResult');
-  resultDiv.style.display=''; resultDiv.style.background='var(--surface2)'; resultDiv.textContent='Importing…';
-  try {
-    const d = await fetch(`/api/clients/${activeClientId}/import-bas-history`, {method:'POST',body:fd}).then(r=>r.json());
-    if (d.error) throw new Error(d.error);
-    resultDiv.style.background = 'var(--green-lo)';
-    let msg = `<span style="color:var(--green);font-weight:700;">✓ Done</span> — ${d.learned} patterns learned, ${d.skipped} rows skipped`;
-    if (d.unknown_categories && d.unknown_categories.length)
-      msg += `<br><span style="color:var(--amber);">Unrecognized categories (${d.unknown_categories.length}): ${d.unknown_categories.slice(0,5).map(esc).join(', ')}${d.unknown_categories.length>5?'…':''}</span>`;
-    resultDiv.innerHTML = msg;
-    basImportReset();
-    loadVendorMemory();
-  } catch(e) {
-    resultDiv.style.background='var(--red-lo)';
-    resultDiv.innerHTML=`<span style="color:var(--red);font-weight:700;">Error:</span> ${esc(e.message)}`;
-  }
-}
-
-function basImportReset() {
-  _basImportFile = null; _basImportHeaders = [];
-  document.getElementById('basHistoryFile').value = '';
-  document.getElementById('vmImportStep2').style.display = 'none';
-}
-
 // AI CATEGORIZE PAGE
 // ══════════════════════════════════════════════════════════════════════════
 async function loadAiCategorizePage() {
