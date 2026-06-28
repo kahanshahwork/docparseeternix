@@ -70,7 +70,8 @@ def _hydrate_category_fields(conn, txn: dict) -> dict:
 
 @workflow_bp.route("/categories", methods=["GET"])
 def get_categories():
-    return jsonify(category_master.list_categories())
+    active_only = request.args.get("active_only", "true").lower() != "false"
+    return jsonify(category_master.list_categories(active_only=active_only))
 
 
 @workflow_bp.route("/categories", methods=["POST"])
@@ -368,26 +369,6 @@ def finalize_gst(sid):
     conn.commit()
     log_audit("statement", sid, "finalize_gst")
     return jsonify({"status": "gst_reviewed"})
-
-
-@workflow_bp.route("/statements/<int:sid>/finalize_categorize", methods=["POST"])
-def finalize_categorize(sid):
-    """Mark statement as categorized (step 3 complete)."""
-    conn = get_db()
-    conn.execute("UPDATE statements SET status = 'categorized' WHERE id = ?", (sid,))
-    conn.commit()
-    log_audit("statement", sid, "finalize_categorize")
-    return jsonify({"status": "categorized"})
-
-
-@workflow_bp.route("/statements/<int:sid>/finalize_pnl", methods=["POST"])
-def finalize_pnl(sid):
-    """Mark statement as fully complete (step 5 P&L done)."""
-    conn = get_db()
-    conn.execute("UPDATE statements SET status = 'finalized' WHERE id = ?", (sid,))
-    conn.commit()
-    log_audit("statement", sid, "finalize_pnl")
-    return jsonify({"status": "finalized"})
 
 
 # ── P&L (item 9) ─────────────────────────────────────────────────────────────
@@ -1389,3 +1370,149 @@ def import_csv_excel():
         "skipped":      skipped,
         "name":         name,
     })
+
+
+# ── Vendor Memory Management ────────────────────────────────────────────────
+
+@workflow_bp.route("/clients/<int:client_id>/vendor-memory", methods=["GET"])
+def list_vendor_memory(client_id):
+    """List all vendor memory patterns for a client."""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT vm.id, vm.pattern, vm.hit_count, vm.updated_at,
+               c.name as category_name, c.pnl_group, c.gst_applicable
+        FROM vendor_memory vm
+        JOIN categories c ON c.id = vm.category_id
+        WHERE vm.client_id = ?
+        ORDER BY vm.hit_count DESC, vm.updated_at DESC
+    """, (client_id,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@workflow_bp.route("/clients/<int:client_id>/vendor-memory", methods=["DELETE"])
+def clear_vendor_memory(client_id):
+    """Wipe all vendor memory for a client — clean slate before real work."""
+    conn = get_db()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM vendor_memory WHERE client_id = ?", (client_id,)
+    ).fetchone()[0]
+    conn.execute("DELETE FROM vendor_memory WHERE client_id = ?", (client_id,))
+    conn.commit()
+    log_audit("client", client_id, "clear_vendor_memory", f"deleted {count} patterns")
+    return jsonify({"deleted": count})
+
+
+@workflow_bp.route("/clients/<int:client_id>/vendor-memory/<int:vm_id>", methods=["DELETE"])
+def delete_vendor_memory_entry(client_id, vm_id):
+    """Delete a single vendor memory pattern."""
+    conn = get_db()
+    conn.execute("DELETE FROM vendor_memory WHERE id = ? AND client_id = ?", (vm_id, client_id))
+    conn.commit()
+    return jsonify({"deleted": vm_id})
+
+
+@workflow_bp.route("/clients/<int:client_id>/import-bas-history", methods=["POST"])
+def import_bas_history(client_id):
+    """
+    Import a previously exported categorized BAS Excel (.xlsx) for this client.
+    Reads Description + Category columns → seeds vendor_memory.
+    Only writes patterns where category name matches an existing active category.
+    body: multipart file upload — the .xlsx GST or P&L export from DocParse.
+    """
+    import io as _io
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    f = request.files["file"]
+    raw = f.read()
+
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(_io.BytesIO(raw), data_only=True)
+        ws = wb.active
+        all_rows = list(ws.iter_rows(values_only=True))
+    except Exception as e:
+        return jsonify({"error": f"Could not read Excel file: {e}"}), 400
+
+    if not all_rows:
+        return jsonify({"error": "Empty file"}), 400
+
+    # Find Description and Category columns (case-insensitive header match)
+    headers = [str(h).strip().lower() if h else "" for h in all_rows[0]]
+
+    def _find(candidates):
+        for c in candidates:
+            if c in headers:
+                return headers.index(c)
+        return None
+
+    desc_idx = _find(["description", "details", "particulars", "narrative"])
+    cat_idx  = _find(["category", "category name", "cat"])
+
+    if desc_idx is None or cat_idx is None:
+        return jsonify({
+            "error": f"Cannot find Description and Category columns. Found: {list(all_rows[0])}"
+        }), 400
+
+    # Build category name → id lookup
+    conn = get_db()
+    cats = conn.execute("SELECT id, name FROM categories WHERE is_active = 1").fetchall()
+    cat_by_name = {r["name"].lower().strip(): r["id"] for r in cats}
+
+    learned = 0
+    skipped = 0
+    for row in all_rows[1:]:
+        desc = str(row[desc_idx] or "").strip()
+        cat_name = str(row[cat_idx] or "").strip()
+        if not desc or not cat_name:
+            skipped += 1
+            continue
+        cat_id = cat_by_name.get(cat_name.lower())
+        if not cat_id:
+            skipped += 1
+            continue
+        vendor_memory.remember(client_id, desc, cat_id)
+        learned += 1
+
+    log_audit("client", client_id, "import_bas_history", f"learned={learned}, skipped={skipped}")
+    return jsonify({"learned": learned, "skipped": skipped, "total_rows": len(all_rows) - 1})
+
+
+# ── Category Management (CRUD) ──────────────────────────────────────────────
+
+@workflow_bp.route("/categories/<int:cat_id>", methods=["PATCH"])
+def update_category(cat_id):
+    """Edit a category's name, pnl_group, gst_applicable, gst_rate, bas_label."""
+    b = request.json or {}
+    conn = get_db()
+    allowed = {"name", "pnl_group", "gst_applicable", "gst_rate", "bas_label", "is_active"}
+    sets, vals = [], []
+    for k, v in b.items():
+        if k in allowed:
+            sets.append(f"{k} = ?")
+            vals.append(v)
+    if not sets:
+        return jsonify({"error": "No valid fields"}), 400
+    vals.append(cat_id)
+    conn.execute(f"UPDATE categories SET {', '.join(sets)} WHERE id = ?", vals)
+    conn.commit()
+    row = conn.execute("SELECT * FROM categories WHERE id = ?", (cat_id,)).fetchone()
+    return jsonify(dict(row))
+
+
+@workflow_bp.route("/categories/<int:cat_id>", methods=["DELETE"])
+def delete_category(cat_id):
+    """Soft-delete a category (sets is_active=0). Hard delete only if no transactions use it."""
+    conn = get_db()
+    in_use = conn.execute(
+        "SELECT COUNT(*) FROM transactions WHERE category_id = ?", (cat_id,)
+    ).fetchone()[0]
+    if in_use:
+        # Soft delete — keep for historical data, just hide from dropdowns
+        conn.execute("UPDATE categories SET is_active = 0 WHERE id = ?", (cat_id,))
+        conn.commit()
+        return jsonify({"deleted": False, "deactivated": True, "in_use": in_use,
+                        "message": f"Category is used by {in_use} transaction(s) — deactivated instead of deleted"})
+    conn.execute("DELETE FROM categories WHERE id = ?", (cat_id,))
+    conn.commit()
+    return jsonify({"deleted": True})

@@ -22,6 +22,8 @@ def get_db() -> sqlite3.Connection:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")   # concurrent reads+writes
+        conn.execute("PRAGMA synchronous = NORMAL")  # safe + faster with WAL
         _local.conn = conn
     return _local.conn
 
@@ -122,7 +124,6 @@ CREATE TABLE IF NOT EXISTS quarter_consolidations (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     quarter_id         INTEGER NOT NULL REFERENCES quarters(id),
     consolidation_name TEXT NOT NULL DEFAULT 'Consolidated Report',
-    data               TEXT,
     created_at         TEXT DEFAULT (datetime('now'))
 );
 
@@ -131,7 +132,6 @@ CREATE TABLE IF NOT EXISTS annual_consolidations (
     client_id   INTEGER NOT NULL REFERENCES clients(id),
     label       TEXT NOT NULL,
     quarter_ids TEXT NOT NULL,
-    data        TEXT,
     created_at  TEXT DEFAULT (datetime('now'))
 );
 """
@@ -159,19 +159,6 @@ def _migrate(conn: sqlite3.Connection):
         conn.execute("ALTER TABLE statements ADD COLUMN statement_name TEXT")
         conn.commit()
         print("[db] Migrated: added statement_name to statements.")
-
-    # Consolidation tables: add data column if missing
-    qc_cols = [row[1] for row in conn.execute("PRAGMA table_info(quarter_consolidations)").fetchall()]
-    if "data" not in qc_cols:
-        conn.execute("ALTER TABLE quarter_consolidations ADD COLUMN data TEXT")
-        conn.commit()
-        print("[db] Migrated: added data to quarter_consolidations.")
-
-    ac_cols = [row[1] for row in conn.execute("PRAGMA table_info(annual_consolidations)").fetchall()]
-    if "data" not in ac_cols:
-        conn.execute("ALTER TABLE annual_consolidations ADD COLUMN data TEXT")
-        conn.commit()
-        print("[db] Migrated: added data to annual_consolidations.")
 
 
 def log_audit(entity_type: str, entity_id: int, action: str, detail: str = "", actor: str = "user"):
