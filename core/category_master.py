@@ -71,9 +71,12 @@ DEFAULT_CATEGORIES = [
     ("TRAVEL_INTL",         "Travel - International",       "Expense",     0, 0.0,  "G11",      470),
 
     # ── System ───────────────────────────────────────────────────────────
-    ("BANK_TRANSFER",       "Bank Transfer",                "Excluded",    0, 0.0,  "excluded", 480),
-    ("DRAWINGS",            "Drawings",                     "Excluded",    0, 0.0,  "excluded", 490),
-    ("GUARANTEE_FEES",      "Guarantee Fees",               "Excluded",    0, 0.0,  "excluded", 495),
+    ("ACCOUNTING_EXP",      "Accounting Expense",           "Expense",     1, 0.10, "G11",      475),
+    ("BANK_TRANSFER_IN",    "Bank Transfer (Received)",     "Income",      0, 0.0,  "G1",       476),
+    ("BANK_TRANSFER_OUT",   "Bank Transfer (Sent)",         "Expense",     0, 0.0,  "G11",      477),
+    ("DRAWINGS_IN",         "Drawings (Received)",          "Income",      0, 0.0,  "G1",       478),
+    ("DRAWINGS_OUT",        "Drawings (Paid)",              "Expense",     0, 0.0,  "G11",      479),
+    ("GUARANTEE_FEES",      "Guarantee Fees",               "Expense",     0, 0.0,  "G11",      480),
     ("UNCATEGORIZED",       "Uncategorized",                "Excluded",    0, 0.0,  "excluded", 999),
 ]
 
@@ -120,7 +123,7 @@ def list_categories(active_only: bool = True):
     q = "SELECT * FROM categories"
     if active_only:
         q += " WHERE is_active = 1"
-    q += " ORDER BY sort_order"
+    q += " ORDER BY name COLLATE NOCASE"
     return [dict(r) for r in conn.execute(q).fetchall()]
 
 
