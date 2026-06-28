@@ -359,6 +359,15 @@ def get_gst(sid):
     })
 
 
+@workflow_bp.route("/statements/<int:sid>/finalize_categorize", methods=["POST"])
+def finalize_categorize(sid):
+    conn = get_db()
+    conn.execute("UPDATE statements SET status = 'categorized' WHERE id = ?", (sid,))
+    conn.commit()
+    log_audit("statement", sid, "finalize_categorize")
+    return jsonify({"status": "categorized"})
+
+
 @workflow_bp.route("/statements/<int:sid>/finalize_gst", methods=["POST"])
 def finalize_gst(sid):
     conn = get_db()
@@ -366,6 +375,15 @@ def finalize_gst(sid):
     conn.commit()
     log_audit("statement", sid, "finalize_gst")
     return jsonify({"status": "gst_reviewed"})
+
+
+@workflow_bp.route("/statements/<int:sid>/finalize_pnl", methods=["POST"])
+def finalize_pnl(sid):
+    conn = get_db()
+    conn.execute("UPDATE statements SET status = 'finalized' WHERE id = ?", (sid,))
+    conn.commit()
+    log_audit("statement", sid, "finalize_pnl")
+    return jsonify({"status": "finalized"})
 
 
 # ── P&L (item 9) ─────────────────────────────────────────────────────────────
@@ -1585,32 +1603,3 @@ def approve_and_learn(sid):
     conn.commit()
     log_audit("statement", sid, "approve_and_learn", f"{len(rows)} patterns sent to vendor memory")
     return jsonify({"learned": len(rows), "client_id": client_id})
-
-
-# ── Finalize steps ───────────────────────────────────────────────────────────
-
-@workflow_bp.route("/statements/<int:sid>/finalize_categorize", methods=["POST"])
-def finalize_categorize(sid):
-    conn = get_db()
-    conn.execute("UPDATE statements SET status = 'categorized' WHERE id = ?", (sid,))
-    conn.commit()
-    log_audit("statement", sid, "finalize_categorize")
-    return jsonify({"status": "categorized"})
-
-
-@workflow_bp.route("/statements/<int:sid>/finalize_gst", methods=["POST"])
-def finalize_gst(sid):
-    conn = get_db()
-    conn.execute("UPDATE statements SET status = 'gst_reviewed' WHERE id = ?", (sid,))
-    conn.commit()
-    log_audit("statement", sid, "finalize_gst")
-    return jsonify({"status": "gst_reviewed"})
-
-
-@workflow_bp.route("/statements/<int:sid>/finalize_pnl", methods=["POST"])
-def finalize_pnl(sid):
-    conn = get_db()
-    conn.execute("UPDATE statements SET status = 'finalized' WHERE id = ?", (sid,))
-    conn.commit()
-    log_audit("statement", sid, "finalize_pnl")
-    return jsonify({"status": "finalized"})
