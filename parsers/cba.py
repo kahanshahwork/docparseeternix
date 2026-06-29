@@ -773,23 +773,59 @@ def _parse_layout_c(pages: list, start_year: int, opening_balance: Optional[floa
 #  LAYOUT DETECTION
 # ══════════════════════════════════════════════════════════════════════════════
 
+_DAY_NAMES = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+
+def _is_layout_d(pages: list) -> bool:
+    """
+    Layout D — CBA NetBank / CommBank App transaction export.
+    Structural signals (no keyword/account-type matching):
+      1. Header row has Date + Debit + Credit + Balance
+      2. First data rows have a day-name token (Mon/Tue/...) as the FIRST word
+         in the date column — traditional statements never have day names
+      3. Amounts are signed (+$xxx / -$xxx) not unsigned separate columns
+    """
+    for page in pages[:2]:
+        words = page.extract_words(x_tolerance=2, y_tolerance=3)
+        header = _find_header_row(words)
+        if not header:
+            continue
+        cols = {w["text"].lower() for w in header}
+        if not ("debit" in cols and "credit" in cols and "balance" in cols):
+            continue
+        # Check first few data rows: does date column start with a day name?
+        header_top = min(w["top"] for w in header)
+        date_x_max = min(w["x0"] for w in header if w["text"].lower() == "description") - 5
+        data_words = [w for w in words if w["top"] > header_top + 5 and w["x0"] < date_x_max]
+        day_tokens = [w["text"].lower() for w in data_words[:10]]
+        if any(d in _DAY_NAMES for d in day_tokens):
+            # Also verify amounts are signed (+$/-$) not plain numbers
+            amt_words = [w for w in words if w["top"] > header_top + 5
+                         and re.match(r"^[+\-]\$[\d,]+\.\d{2}$", w["text"])]
+            if amt_words:
+                return True
+    return False
+
+
 def _detect_layout(pdf_path: str) -> str:
     """
-    Open the PDF, find the header row, inspect column names.
-    Returns 'A', 'B', 'C', or 'unknown'.
+    Open the PDF, find the header row, inspect column names and data structure.
+    Returns 'A', 'B', 'C', 'D', or 'unknown'.
     NO text matching on account type / product name.
     """
     with pdfplumber.open(pdf_path) as pdf:
+        # Layout D check first — it has Debit+Credit header like A but different data format
+        if _is_layout_d(pdf.pages):
+            return "D"
         for page in pdf.pages[:3]:
             words = page.extract_words(x_tolerance=1, y_tolerance=3)
             header = _find_header_row(words)
             if not header:
                 continue
             cols = {w["text"].lower() for w in header}
-            has_debit   = "debit"  in cols
-            has_credit  = "credit" in cols
-            has_amount  = "amount" in cols
-            has_total   = "total"  in cols
+            has_debit   = "debit"   in cols
+            has_credit  = "credit"  in cols
+            has_amount  = "amount"  in cols
+            has_total   = "total"   in cols
             has_balance = "balance" in cols
 
             if has_debit and has_credit and has_total:
@@ -804,6 +840,230 @@ def _detect_layout(pdf_path: str) -> str:
                 return "A"                      # Fallback
 
     return "unknown"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  LAYOUT D — CBA NetBank / CommBank App Export
+#  Header: Date | Description | Debit | Credit | Balance
+#  Date cell: "Mon DD Mon YYYY" (day-of-week + date)
+#  Amount: single signed value (+$xxx credit, -$xxx debit) in debit or credit col
+#  Balance: unsigned "$xxx.xx" (no Cr/Dr suffix — running balance)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_SIGNED_AMT_RE = re.compile(r"^([+\-])\$([\d,]+\.\d{2})$")
+
+def _extract_metadata_d(pages: list) -> dict:
+    """
+    Extract account metadata from the CBA NetBank export header block.
+    The header has: account type + BSB/account on the first line,
+    then Available / Pending / Balance summary.
+    Works structurally — matches label patterns, not account-type names.
+    """
+    meta = {
+        "account_name":    None,
+        "account_number":  None,
+        "bsb":             None,
+        "period_start":    None,
+        "period_end":      None,
+        "opening_balance": None,
+        "closing_balance": None,
+        "total_credits":   None,
+        "total_debits":    None,
+    }
+    full_text = ""
+    for page in pages[:1]:
+        full_text += page.extract_text() or ""
+
+    lines = [l.strip() for l in full_text.splitlines() if l.strip()]
+
+    # First meaningful line: "Business Trans Acct 062-692 4784 8750"
+    # Pattern: <account label> <BSB> <account number parts>
+    for line in lines[:5]:
+        m = re.search(r"(\d{3}-\d{3})\s+([\d\s]{8,})", line)
+        if m:
+            meta["bsb"] = m.group(1)
+            meta["account_number"] = m.group(2).replace(" ", "")
+            # Account name = everything before the BSB
+            name_part = line[:line.index(m.group(1))].strip()
+            if name_part:
+                meta["account_name"] = name_part
+            break
+
+    # Balance from summary block
+    for line in lines:
+        mb = re.search(r"Balance\s+\$?([\d,]+\.\d{2})", line, re.I)
+        if mb:
+            meta["closing_balance"] = float(mb.group(1).replace(",", ""))
+            break
+
+    return meta
+
+
+def _parse_layout_d(pages: list, start_year: int) -> list:
+    """
+    Parse CBA NetBank / CommBank App export (Layout D).
+
+    Each transaction occupies 1–N visual rows:
+      Row 1 (anchor row): day-of-week + DD + Mon + YYYY in date col,
+                          first description line,
+                          signed amount (+$/-$) in amount col,
+                          balance in balance col
+      Row 2+: continuation description lines only (no date, no amount)
+
+    Column calibration: derived from the header row positions — same
+    structural approach as all other layouts.
+    """
+    from collections import defaultdict
+    transactions = []
+    year_state   = [start_year, 0]
+
+    _MONTH_MAP = {
+        "jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
+        "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12,
+    }
+
+    def _parse_date_d(words: list) -> Optional[str]:
+        """Parse 'Mon DD Mon YYYY' or 'DD Mon YYYY' from date-column words."""
+        texts = [w["text"] for w in words]
+        # Strip leading day-name if present
+        if texts and texts[0].lower() in _DAY_NAMES:
+            texts = texts[1:]
+        # Expect: DD  Mon  YYYY
+        if len(texts) >= 3:
+            try:
+                day  = int(texts[0])
+                mon_n = _MONTH_MAP.get(texts[1].lower()[:3])
+                yr   = int(texts[2]) if len(texts[2]) == 4 else None
+                if mon_n and yr:
+                    return datetime(yr, mon_n, day).strftime("%d-%b-%Y")
+            except (ValueError, IndexError):
+                pass
+        return None
+
+    def _parse_signed(s: str) -> Optional[float]:
+        m = _SIGNED_AMT_RE.match(s)
+        if not m:
+            return None
+        val = float(m.group(2).replace(",", ""))
+        return val if m.group(1) == "+" else -val
+
+    def _parse_bal(s: str) -> Optional[float]:
+        s = s.replace(",", "").lstrip("$")
+        try:
+            return float(s)
+        except ValueError:
+            return None
+
+    for page_num, page in enumerate(pages, 1):
+        words = page.extract_words(x_tolerance=2, y_tolerance=3)
+        if not words:
+            continue
+
+        # Find header row to calibrate column boundaries
+        header = _find_header_row(words)
+        if not header:
+            # Continuation page — use last known boundaries (set externally)
+            # Fall back to structural heuristic: description ends before ~350,
+            # amounts between 350–530, balance >= 530
+            desc_x_max  = 350.0
+            amt_x_min   = 350.0
+            bal_x_min   = 530.0
+            date_x_max  = 100.0
+        else:
+            # Calibrate from header positions
+            hdr_by_name = {w["text"].lower(): w for w in header}
+            date_x_max  = hdr_by_name.get("description", {}).get("x0", 100.0) - 2
+            desc_x_max  = min(hdr_by_name.get("debit",   {}).get("x0", 370.0),
+                              hdr_by_name.get("credit",  {}).get("x0", 460.0)) - 2
+            amt_x_min   = min(hdr_by_name.get("debit",   {}).get("x0", 360.0),
+                              hdr_by_name.get("credit",  {}).get("x0", 450.0)) - 5
+            bal_x_min   = hdr_by_name.get("balance", {}).get("x0", 530.0) - 5
+
+        # Group words into visual rows with tight tolerance to keep date+amount together
+        # but separate from description text that may be at a slightly different Y
+        by_y = defaultdict(list)
+        for w in words:
+            by_y[round(w["top"] / 3) * 3].append(w)
+
+        header_top = min(w["top"] for w in header) if header else 0
+
+        pending_date  = None
+        pending_descs = []
+        pending_top   = 0.0
+        pending_bal   = None
+        pending_amt   = 0.0
+
+        def emit():
+            if pending_date and (pending_descs or pending_amt != 0.0):
+                transactions.append({
+                    "transaction_id": "",
+                    "date":          pending_date,
+                    "description":   " ".join(pending_descs).strip(),
+                    "amount":        round(pending_amt, 2),
+                    "balance":       pending_bal,
+                    "source_page":   page_num,
+                    "row_top":       pending_top,
+                    "confidence":    1.0,
+                })
+
+        for y_key in sorted(by_y.keys()):
+            row_words = sorted(by_y[y_key], key=lambda w: w["x0"])
+            if not row_words:
+                continue
+            # Skip header row
+            if abs(row_words[0]["top"] - header_top) < 8:
+                continue
+
+            # Classify words by x-position zone
+            date_words  = [w for w in row_words if w["x0"] < date_x_max
+                           and w["text"].lower() not in ("cr", "dr")]
+            desc_words  = [w for w in row_words if date_x_max <= w["x0"] < desc_x_max
+                           and not _SIGNED_AMT_RE.match(w["text"])
+                           and not re.match(r"^\$[\d,]+\.\d{2}$", w["text"])]
+            amt_words   = [w for w in row_words if w["x0"] >= amt_x_min
+                           and w["x0"] < bal_x_min
+                           and _SIGNED_AMT_RE.match(w["text"])]
+            bal_words   = [w for w in row_words if w["x0"] >= bal_x_min
+                           and re.match(r"^-?\$[\d,]+\.\d{2}$", w["text"])]
+
+            # Also pick up signed amounts that fall in the desc zone (layout drift)
+            stray_amts  = [w for w in row_words if date_x_max <= w["x0"] < amt_x_min
+                           and _SIGNED_AMT_RE.match(w["text"])]
+            if stray_amts:
+                amt_words = stray_amts + amt_words
+
+            desc_text = " ".join(w["text"] for w in desc_words).strip()
+            amt_val   = _parse_signed(amt_words[0]["text"]) if amt_words else None
+            bal_val   = _parse_bal(bal_words[0]["text"])    if bal_words  else None
+
+            # Detect anchor row: has date column words
+            found_date = _parse_date_d(date_words) if date_words else None
+
+            if found_date:
+                emit()  # flush previous
+                pending_date  = found_date
+                pending_top   = row_words[0]["top"]
+                pending_descs = [desc_text] if desc_text else []
+                pending_amt   = amt_val if amt_val is not None else 0.0
+                pending_bal   = bal_val
+            elif amt_val is not None:
+                # Amount row — belongs to current pending transaction
+                if desc_text:
+                    pending_descs.append(desc_text)
+                pending_amt += amt_val
+                if bal_val is not None:
+                    pending_bal = bal_val
+            elif desc_text:
+                # Pure description continuation
+                if pending_date:
+                    pending_descs.append(desc_text)
+
+        emit()  # flush last transaction on this page
+        pending_date = None; pending_descs = []; pending_amt = 0.0; pending_bal = None
+
+    return transactions
+
+
 
 
 def _extract_start_year(text: str) -> int:
@@ -865,27 +1125,55 @@ def parse(pdf_path: str) -> dict:
         opening_bal = _extract_opening_balance(page1_text)
         pages       = pdf.pages
 
-        if layout == "A":
+        if layout == "D":
+            meta_fields = _extract_metadata_d(pages)
+            txns = _parse_layout_d(pages, start_year)
+            # Layout D is reverse-chronological: balance[i] - balance[i+1] = amount[i]
+            # Use this to verify and correct signs
+            for i in range(len(txns)):
+                curr_bal = txns[i]["balance"]
+                next_bal = txns[i+1]["balance"] if i+1 < len(txns) else None
+                if curr_bal is None or next_bal is None:
+                    continue
+                delta = round(curr_bal - next_bal, 2)
+                amt   = txns[i]["amount"]
+                if amt == 0.0 or abs(abs(delta) - abs(amt)) <= 0.02:
+                    txns[i]["amount"] = delta
+        elif layout == "A":
+            meta_fields = {}
             txns = _parse_layout_a(pages, start_year, opening_bal)
         elif layout == "B":
+            meta_fields = {}
             txns = _parse_layout_b(pages, start_year, opening_bal)
         elif layout == "C":
+            meta_fields = {}
             txns = _parse_layout_c(pages, start_year, opening_bal)
         else:
-            # Unknown layout — try A as best guess
+            meta_fields = {}
             txns = _parse_layout_a(pages, start_year, opening_bal)
 
     for i, t in enumerate(txns):
         t["transaction_id"] = f"cba_{i+1:04d}"
 
     return {
-        "transactions": txns,
-        "ambiguous":    [],
+        "transactions":   txns,
+        "ambiguous":      [],
+        "account_name":   meta_fields.get("account_name"),
+        "account_number": meta_fields.get("account_number"),
+        "bsb":            meta_fields.get("bsb"),
+        "bank_id":        "cba",
+        "period_start":   meta_fields.get("period_start"),
+        "period_end":     meta_fields.get("period_end"),
+        "opening_balance":meta_fields.get("opening_balance"),
+        "closing_balance":meta_fields.get("closing_balance"),
+        "total_credits":  meta_fields.get("total_credits"),
+        "total_debits":   meta_fields.get("total_debits"),
         "meta": {
-            "bank":         "CBA",
-            "bank_id":      "cba",
-            "layout":       layout,
-            "pages":        page_count,
+            "bank":          "CBA",
+            "bank_id":       "cba",
+            "layout":        layout,
+            "pages":         page_count,
             "parse_time_ms": round((time.time() - t0) * 1000),
         },
     }
+
