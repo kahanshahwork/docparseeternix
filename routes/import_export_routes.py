@@ -464,6 +464,7 @@ def export_pnl(sid):
     except ImportError:
         return jsonify({"error": "openpyxl not installed. Run: pip install openpyxl"}), 500
     try:
+        view = request.args.get("view", "gross")  # "gross" = GST Unadjusted, "net" = GST Adjusted
         conn = get_db()
         rows = [dict(r) for r in conn.execute(
             "SELECT t.*, c.name as category_name, c.pnl_group, c.bas_label, c.gst_applicable "
@@ -473,67 +474,93 @@ def export_pnl(sid):
 
         pnl = pnl_engine.generate_pnl(rows)
 
+        # Use category-wise rows for the export
+        cat_rows = pnl.get("gross_category_rows", [])
+        is_net   = (view == "net")
+        view_label = "GST Adjusted (Net)" if is_net else "GST Unadjusted (Gross)"
+
         wb  = openpyxl.Workbook()
         ws  = wb.active
         ws.title = "Profit & Loss"
 
-        hdr_fill = PatternFill("solid", fgColor="1C3557")
-        hdr_font = Font(color="FFFFFF", bold=True, size=11)
-        bold     = Font(bold=True)
-        bold13   = Font(bold=True, size=13)
-        right    = Alignment(horizontal="right")
-        grn_fill = PatternFill("solid", fgColor="D1FAE5")
-        amb_fill = PatternFill("solid", fgColor="FEF3C7")
-        red_fill = PatternFill("solid", fgColor="FEE2E2")
-        sub_fill = PatternFill("solid", fgColor="EFF6FF")
+        hdr_fill  = PatternFill("solid", fgColor="1C3557")
+        hdr_font  = Font(color="FFFFFF", bold=True, size=11)
+        bold      = Font(bold=True)
+        bold13    = Font(bold=True, size=13)
+        right     = Alignment(horizontal="right")
+        grn_fill  = PatternFill("solid", fgColor="D1FAE5")
+        red_fill  = PatternFill("solid", fgColor="FEE2E2")
+        amb_fill  = PatternFill("solid", fgColor="FEF3C7")
+        grp_fill  = PatternFill("solid", fgColor="EFF6FF")
+        muted_fill= PatternFill("solid", fgColor="F3F4F6")
 
-        def section(title, lines, total, fill):
-            if not lines:
-                return
-            ws.append([title, ""])
-            for cell in ws[ws.max_row]:
-                cell.font = hdr_font; cell.fill = hdr_fill
-            for line in lines:
-                ws.append(["  " + (line.get("category") or ""), line.get("amount", 0)])
-                ws.cell(ws.max_row, 2).number_format = "#,##0.00"
-                ws.cell(ws.max_row, 2).alignment = right
-            ws.append(["Total " + title, total])
+        # Title row
+        ws.append([f"Profit & Loss — {view_label}", "", "", ""])
+        ws.cell(1,1).font = Font(bold=True, size=13)
+        ws.append([])
+
+        # Header
+        ws.append(["Category", "P&L Group", "GST Unadjusted (Gross)", "GST Adjusted (Net)", "Txn Count"])
+        for cell in ws[ws.max_row]:
+            cell.font = hdr_font; cell.fill = hdr_fill; cell.alignment = right if cell.column > 2 else Alignment()
+
+        GROUP_ORDER = {"Income": 0, "Direct Cost": 1, "Expense": 2, "Excluded": 3}
+        sorted_rows = sorted(cat_rows, key=lambda r: (GROUP_ORDER.get(r.get("pnl_group","Excluded"), 4), r.get("category","")))
+
+        last_grp = None
+        for row in sorted_rows:
+            grp = row.get("pnl_group", "Excluded")
+            if grp != last_grp:
+                ws.append([grp.upper(), "", "", "", ""])
+                grp_row = ws.max_row
+                for c in range(1, 6):
+                    ws.cell(grp_row, c).font  = Font(bold=True, size=10)
+                    ws.cell(grp_row, c).fill  = grp_fill
+                last_grp = grp
+
+            gross_amt = row["amount"]     if grp == "Income" else abs(row["amount"])
+            net_amt   = row["net_amount"] if grp == "Income" else abs(row["net_amount"])
+
+            ws.append(["  " + (row.get("category") or ""), grp, gross_amt, net_amt, row.get("count", 0)])
             r = ws.max_row
-            ws.cell(r, 1).font = bold; ws.cell(r, 2).font = bold
-            ws.cell(r, 2).number_format = "#,##0.00"
-            ws.cell(r, 2).alignment = right
-            for c in [1, 2]:
-                ws.cell(r, c).fill = fill
-            ws.append([])
+            for c in [3, 4]:
+                ws.cell(r, c).number_format = "#,##0.00"
+                ws.cell(r, c).alignment     = right
+            # Colour the "active" column
+            active_col = 4 if is_net else 3
+            inactive_col = 3 if is_net else 4
+            ws.cell(r, active_col).font = Font(bold=True)
 
-        def subtotal_row(label, value, fill):
-            ws.append([label, value])
+        ws.append([])
+
+        # Totals
+        def tot_row(label, gross_val, net_val, fill):
+            ws.append([label, "", gross_val, net_val, ""])
             r = ws.max_row
-            ws.cell(r, 1).font = bold13; ws.cell(r, 2).font = bold13
-            ws.cell(r, 2).number_format = "#,##0.00"
-            ws.cell(r, 2).alignment = right
-            for c in [1, 2]:
-                ws.cell(r, c).fill = fill
-            ws.append([])
+            ws.cell(r, 1).font = bold13; ws.cell(r, 1).fill = fill
+            for c in [3, 4]:
+                ws.cell(r, c).font         = bold13
+                ws.cell(r, c).fill         = fill
+                ws.cell(r, c).number_format= "#,##0.00"
+                ws.cell(r, c).alignment    = right
 
-        section("Revenue",      pnl.get("income_lines",      []), pnl.get("total_income",      0), grn_fill)
-        section("Direct Costs", pnl.get("direct_cost_lines", []), pnl.get("total_direct_cost", 0), amb_fill)
-        if pnl.get("direct_cost_lines"):
-            subtotal_row("Gross Profit", pnl.get("gross_profit", 0), sub_fill)
-        section("Expenses", pnl.get("expense_lines", []), pnl.get("total_expense", 0), red_fill)
-
-        net      = pnl.get("net_profit", 0)
-        net_fill = PatternFill("solid", fgColor=("D1FAE5" if net >= 0 else "FEE2E2"))
-        subtotal_row("Net Profit / Loss", net, net_fill)
+        gross_net = pnl.get("gross_net_profit", 0)
+        adj_net   = pnl.get("net_profit", 0)
+        net_fill  = PatternFill("solid", fgColor=("D1FAE5" if (adj_net if is_net else gross_net) >= 0 else "FEE2E2"))
+        tot_row("NET PROFIT / LOSS", gross_net, adj_net, net_fill)
 
         ws.column_dimensions["A"].width = 40
-        ws.column_dimensions["B"].width = 20
+        ws.column_dimensions["B"].width = 14
+        ws.column_dimensions["C"].width = 24
+        ws.column_dimensions["D"].width = 24
+        ws.column_dimensions["E"].width = 10
 
         buf = io.BytesIO()
         wb.save(buf)
         buf.seek(0)
+        fname = f"pnl_{'adjusted' if is_net else 'unadjusted'}_stmt{sid}.xlsx"
         return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                         as_attachment=True, download_name=f"pnl_stmt{sid}.xlsx")
+                         as_attachment=True, download_name=fname)
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)}), 500

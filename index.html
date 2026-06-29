@@ -640,10 +640,11 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
 <div class="page" id="page-pnl">
   <div class="page-header">
     <h1>Profit &amp; Loss</h1>
-    <span class="sub" id="pnlViewSub">Gross P&L — GST-inclusive amounts (raw bank values)</span>
+    <span class="sub" id="pnlViewSub">GST Unadjusted — raw bank amounts (GST-inclusive)</span>
     <div class="right" style="display:flex;gap:8px;">
-      <button class="btn-sec" id="pnlToggleView" onclick="togglePnlView()">Switch to Net View</button>
-      <a id="pnlExportBtn" href="#" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export P&amp;L (.xlsx)</a>
+      <button class="btn-sec" id="pnlToggleView" onclick="togglePnlView()">Switch to GST Adjusted View</button>
+      <a id="pnlExportBtn" href="#" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export Unadjusted (.xlsx)</a>
+      <a id="pnlExportNetBtn" href="#" class="btn-sec" style="text-decoration:none;font-size:12px;display:none;">⬇ Export Adjusted (.xlsx)</a>
     </div>
   </div>
   <div class="wf-content">
@@ -657,8 +658,8 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
             <tr>
               <th>Category</th>
               <th>P&L Group</th>
-              <th style="text-align:right;" id="pnlColGross">Gross Amount</th>
-              <th style="text-align:right;" id="pnlColNet">Net Amount (ex-GST)</th>
+              <th style="text-align:right;">GST Unadjusted (Gross)</th>
+              <th style="text-align:right;">GST Adjusted (Net)</th>
               <th style="text-align:right;">Txn Count</th>
             </tr>
           </thead>
@@ -832,6 +833,9 @@ Use negative amounts for debits/withdrawals, positive for credits/deposits.</tex
     <h1>🧠 Vendor Memory</h1>
     <span class="sub">Auto-learned description → category mappings · Used for future suggestions</span>
     <div class="right">
+      <select id="vmClientSel" onchange="onVmClientChange(this.value)" style="border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;background:var(--surface2);color:var(--text);min-width:160px;">
+        <option value="">— Select Client —</option>
+      </select>
       <button class="btn-sec" onclick="loadVendorMemory()">↻ Refresh</button>
       <button class="btn" id="vmClearAllBtn" style="background:var(--red);border-color:var(--red);" onclick="clearAllVendorMemory()">🗑 Clear All</button>
     </div>
@@ -868,10 +872,6 @@ Use negative amounts for debits/withdrawals, positive for credits/deposits.</tex
       <h2 style="margin-bottom:8px;">Import BAS History</h2>
       <div class="psub">Upload a previous BAS export (.xlsx/.csv) to pre-train vendor memory with known categorizations.</div>
       <div style="display:flex;gap:10px;align-items:flex-start;margin-top:10px;flex-wrap:wrap;">
-        <div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Select Client</div>
-          <select id="vmImportClientSel" style="border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:11px;background:var(--surface2);color:var(--text);min-width:160px;"></select>
-        </div>
         <div>
           <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">BAS Export File</div>
           <input type="file" id="vmImportFile" accept=".csv,.xlsx,.xls" style="font-size:11px;">
@@ -2261,34 +2261,40 @@ document.getElementById("gstContinueBtn").addEventListener("click", async () => 
 
 // ── P&L ──────────────────────────────────────────────────────────────────
 let _pnlData = null;
-let _pnlShowGross = true; // default: gross view (raw bank values)
+let _pnlShowGross = true; // true = GST Unadjusted (gross/raw), false = GST Adjusted (net)
 
 function togglePnlView() {
   _pnlShowGross = !_pnlShowGross;
-  document.getElementById('pnlToggleView').textContent = _pnlShowGross ? 'Switch to Net View' : 'Switch to Gross View';
+  document.getElementById('pnlToggleView').textContent = _pnlShowGross ? 'Switch to GST Adjusted View' : 'Switch to GST Unadjusted View';
   document.getElementById('pnlViewSub').textContent = _pnlShowGross
-    ? 'Gross P&L — GST-inclusive amounts (raw bank values)'
-    : 'Net P&L — Income GST-inclusive · Expenses ex-GST (accounting view)';
+    ? 'GST Unadjusted — raw bank amounts (GST-inclusive)'
+    : 'GST Adjusted — expenses shown ex-GST (accounting/tax view)';
+  // Show/hide the right export button
+  const expGross = document.getElementById('pnlExportBtn');
+  const expNet   = document.getElementById('pnlExportNetBtn');
+  if (expGross) expGross.style.display = _pnlShowGross ? '' : 'none';
+  if (expNet)   expNet.style.display   = _pnlShowGross ? 'none' : '';
   renderPnl(_pnlData);
 }
 
 function renderPnl(d) {
   if (!d) return;
-  const g = _pnlShowGross;
 
-  // Category-wise rows from backend
-  const rows = (g ? d.gross_category_rows : d.net_category_rows) || [];
-  const totalIncome     = (g ? d.gross_total_income      : d.total_income)      || 0;
-  const totalDirectCost = (g ? d.gross_total_direct_cost : d.total_direct_cost) || 0;
-  const grossProfit     = (g ? d.gross_profit_gross      : d.gross_profit)      || 0;
-  const totalExpense    = (g ? d.gross_total_expense     : d.total_expense)     || 0;
-  const netProfit       = (g ? d.gross_net_profit        : d.net_profit)        || 0;
+  // Always show BOTH columns; highlight the "active" one based on view toggle
+  const rows        = d.gross_category_rows || [];
+  const totalIncome = d.gross_total_income      || 0;
+  const totalExp    = d.gross_total_expense     || 0;
+  const netProfit   = _pnlShowGross ? (d.gross_net_profit || 0) : (d.net_profit || 0);
+  const netTotalExp = d.total_expense           || 0;
+  const netIncome   = d.total_income            || 0;
 
-  // Summary tiles
+  // Summary tiles always show the active view's totals
+  const summIncome = _pnlShowGross ? totalIncome : netIncome;
+  const summExp    = _pnlShowGross ? totalExp    : netTotalExp;
   const tiles = [
-    { label: 'Total Income',  val: totalIncome,  color: 'var(--green)' },
-    { label: 'Total Expenses', val: totalExpense, color: 'var(--red)' },
-    { label: 'Net Profit / Loss', val: netProfit, color: netProfit >= 0 ? 'var(--green)' : 'var(--red)' },
+    { label: 'Total Income',      val: summIncome, color: 'var(--green)' },
+    { label: 'Total Expenses',    val: summExp,    color: 'var(--red)'   },
+    { label: 'Net Profit / Loss', val: netProfit,  color: netProfit >= 0 ? 'var(--green)' : 'var(--red)' },
   ];
   document.getElementById('pnlSummaryTiles').innerHTML = tiles.map(t =>
     `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
@@ -2297,7 +2303,6 @@ function renderPnl(d) {
     </div>`
   ).join('');
 
-  // Group colour & order
   const GROUP_ORDER = { 'Income': 0, 'Direct Cost': 1, 'Expense': 2, 'Excluded': 3 };
   const GROUP_COLOR = { 'Income': 'var(--green)', 'Direct Cost': 'var(--amber)', 'Expense': 'var(--red)', 'Excluded': 'var(--muted)' };
 
@@ -2307,11 +2312,9 @@ function renderPnl(d) {
     return;
   }
 
-  // Sort rows by group order then by category name
   const sorted = [...rows].sort((a, b) => {
     const go = (GROUP_ORDER[a.pnl_group] ?? 4) - (GROUP_ORDER[b.pnl_group] ?? 4);
-    if (go !== 0) return go;
-    return (a.category || '').localeCompare(b.category || '');
+    return go !== 0 ? go : (a.category || '').localeCompare(b.category || '');
   });
 
   let lastGroup = null;
@@ -2325,34 +2328,43 @@ function renderPnl(d) {
       </tr>`;
       lastGroup = grp;
     }
-    const amount = row.amount ?? 0;
-    const netAmt = row.net_amount ?? amount;
-    // Income: positive amounts. Expense/Direct Cost: show as positive for readability (they are stored as negative raw)
-    const dispGross = (grp === 'Income') ? amount : Math.abs(amount);
-    const dispNet   = (grp === 'Income') ? netAmt : Math.abs(netAmt);
-    const amtColor  = grp === 'Income' ? 'var(--green)' : grp === 'Expense' || grp === 'Direct Cost' ? 'var(--red)' : 'var(--muted)';
+    const grossAmt = grp === 'Income' ? row.amount : Math.abs(row.amount);
+    const netAmt   = grp === 'Income' ? row.net_amount : Math.abs(row.net_amount);
+    const amtColor = grp === 'Income' ? 'var(--green)' : grp === 'Excluded' ? 'var(--muted)' : 'var(--red)';
+
+    // Highlight the active view column
+    const grossStyle = _pnlShowGross
+      ? `font-weight:700;color:${amtColor};background:rgba(0,0,0,.03);`
+      : `color:var(--text-dim);`;
+    const netStyle = !_pnlShowGross
+      ? `font-weight:700;color:${amtColor};background:rgba(0,0,0,.03);`
+      : `color:var(--text-dim);`;
+
     bodyHtml += `<tr>
       <td style="padding-left:18px;">${esc(row.category || '—')}</td>
       <td><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${col}20;color:${col};font-weight:700;">${esc(grp)}</span></td>
-      <td style="text-align:right;font-family:var(--mono);color:${amtColor};">${fmt(dispGross)}</td>
-      <td style="text-align:right;font-family:var(--mono);color:${amtColor};">${fmt(dispNet)}</td>
+      <td style="text-align:right;font-family:var(--mono);${grossStyle}">${fmt(grossAmt)}</td>
+      <td style="text-align:right;font-family:var(--mono);${netStyle}">${fmt(netAmt)}</td>
       <td style="text-align:right;color:var(--muted);">${row.count || 0}</td>
     </tr>`;
   }
   document.getElementById('pnlTableBody').innerHTML = bodyHtml;
 
-  // Footer totals
+  // Footer — always show both columns
+  const footGrossProfit = d.gross_profit_gross || 0;
+  const footNetProfit   = d.net_profit         || 0;
+  const footGrossTotal  = d.gross_total_direct_cost || 0;
   document.getElementById('pnlTableFoot').innerHTML = `
-    ${totalDirectCost ? `<tr style="border-top:2px solid var(--amber);">
+    ${footGrossTotal ? `<tr style="border-top:2px solid var(--amber);">
       <td colspan="2" style="font-weight:700;color:var(--amber);font-size:11px;">GROSS PROFIT (after Direct Costs)</td>
-      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:${grossProfit>=0?'var(--green)':'var(--red)'};">${fmt(grossProfit)}</td>
-      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:${grossProfit>=0?'var(--green)':'var(--red)'};">${fmt(grossProfit)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:${footGrossProfit>=0?'var(--green)':'var(--red)'};">${fmt(footGrossProfit)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:${footGrossProfit>=0?'var(--green)':'var(--red)'};">${fmt(footGrossProfit)}</td>
       <td></td>
     </tr>` : ''}
     <tr style="background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-top:2px solid ${netProfit>=0?'var(--green)':'var(--red)'};">
       <td colspan="2" style="font-weight:800;font-size:13px;color:${netProfit>=0?'var(--green)':'var(--red)'};">NET PROFIT / LOSS</td>
-      <td style="text-align:right;font-family:var(--mono);font-weight:800;font-size:14px;color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</td>
-      <td style="text-align:right;font-family:var(--mono);font-weight:800;font-size:14px;color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:${_pnlShowGross?800:600};font-size:${_pnlShowGross?'14':'12'}px;color:${d.gross_net_profit>=0?'var(--green)':'var(--red)'};">${fmt(d.gross_net_profit||0)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:${!_pnlShowGross?800:600};font-size:${!_pnlShowGross?'14':'12'}px;color:${footNetProfit>=0?'var(--green)':'var(--red)'};">${fmt(footNetProfit)}</td>
       <td></td>
     </tr>`;
 }
@@ -2360,8 +2372,14 @@ function renderPnl(d) {
 async function loadPnl() {
   if (!statementId) return;
   _pnlData = await fetch(`/api/statements/${statementId}/pnl`).then(r=>r.json());
-  const pnlExp = document.getElementById('pnlExportBtn');
-  if (pnlExp) pnlExp.href = `/api/statements/${statementId}/export/pnl`;
+  // Gross export always available; net export link uses same URL with ?view=net param (handled by backend)
+  const pnlExp    = document.getElementById('pnlExportBtn');
+  const pnlExpNet = document.getElementById('pnlExportNetBtn');
+  if (pnlExp)    pnlExp.href    = `/api/statements/${statementId}/export/pnl`;
+  if (pnlExpNet) pnlExpNet.href = `/api/statements/${statementId}/export/pnl?view=net`;
+  // Init export visibility
+  if (pnlExp)    pnlExp.style.display    = _pnlShowGross ? '' : 'none';
+  if (pnlExpNet) pnlExpNet.style.display = _pnlShowGross ? 'none' : '';
   renderPnl(_pnlData);
 }
 
@@ -2371,18 +2389,32 @@ async function loadPnl() {
 let _vmAllRows = [];
 let _vmClientId = null;
 
+function onVmClientChange(cid) {
+  _vmClientId = cid ? parseInt(cid) : null;
+  loadVendorMemory();
+}
+
 async function loadVendorMemory() {
-  const cid = _vmClientId || clientId;
-  if (!cid) { document.getElementById('vmBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;">Select a client first from Client Management.</td></tr>'; return; }
-  _vmClientId = cid;
-  document.getElementById('vmBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Loading…</td></tr>';
-  const rows = await fetch(`/api/clients/${cid}/vendor-memory`).then(r=>r.json()).catch(()=>[]);
-  _vmAllRows = rows;
-  renderVmTable(rows);
-  // Populate import client dropdown
+  // Populate client dropdown first
   const clientRows = await fetch('/api/clients').then(r=>r.json()).catch(()=>[]);
-  const sel = document.getElementById('vmImportClientSel');
-  if (sel) sel.innerHTML = clientRows.map(c=>`<option value="${c.id}" ${c.id==cid?'selected':''}>${esc(c.name)}</option>`).join('');
+  const sel = document.getElementById('vmClientSel');
+  if (sel && clientRows.length) {
+    // Use activeClientId as default if not manually changed
+    if (!_vmClientId && activeClientId) _vmClientId = activeClientId;
+    sel.innerHTML = '<option value="">— Select Client —</option>' +
+      clientRows.map(c => `<option value="${c.id}" ${c.id == _vmClientId ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  }
+
+  if (!_vmClientId) {
+    document.getElementById('vmBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;">Select a client from the dropdown above to view their vendor memory.</td></tr>';
+    document.getElementById('vmCount').textContent = '';
+    return;
+  }
+
+  document.getElementById('vmBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Loading…</td></tr>';
+  const rows = await fetch(`/api/clients/${_vmClientId}/vendor-memory`).then(r=>r.json()).catch(()=>[]);
+  _vmAllRows = rows;
+  filterVmTable();
 }
 
 function renderVmTable(rows) {
@@ -2430,17 +2462,17 @@ async function clearAllVendorMemory() {
 // BAS History Import
 let _basImportPhase1 = null;
 async function startBasImport() {
-  const sel = document.getElementById('vmImportClientSel');
-  const cid = sel?.value;
+  const cid = _vmClientId;
   const file = document.getElementById('vmImportFile')?.files[0];
-  if (!cid || !file) { document.getElementById('vmImportResult').textContent = '⚠ Select a client and file first.'; return; }
+  if (!cid) { document.getElementById('vmImportResult').textContent = '⚠ Select a client from the dropdown above first.'; return; }
+  if (!file) { document.getElementById('vmImportResult').textContent = '⚠ Select a file first.'; return; }
   const fd = new FormData(); fd.append('file', file);
   document.getElementById('vmImportResult').textContent = 'Reading file…';
   document.getElementById('vmImportMapping').style.display = 'none';
   const res = await fetch(`/api/clients/${cid}/import-bas-history`, {method:'POST', body: fd}).then(r=>r.json()).catch(e=>({error:String(e)}));
   if (res.error) { document.getElementById('vmImportResult').textContent = '⚠ ' + res.error; return; }
   if (res.phase === 1) {
-    _basImportPhase1 = {cid, file, headers: res.headers};
+    _basImportPhase1 = {file, headers: res.headers};
     document.getElementById('vmImportResult').textContent = `Found ${res.row_count} rows · Select columns:`;
     document.getElementById('vmImportMapping').style.display = 'block';
     document.getElementById('vmImportMapping').innerHTML = `
@@ -2459,7 +2491,8 @@ async function startBasImport() {
 }
 async function submitBasImport() {
   if (!_basImportPhase1) return;
-  const {cid, file} = _basImportPhase1;
+  const cid = _vmClientId;
+  const {file} = _basImportPhase1;
   const descCol = document.getElementById('vmDescCol')?.value;
   const catCol  = document.getElementById('vmCatCol')?.value;
   const fd = new FormData(); fd.append('file', file); fd.append('mapping', JSON.stringify({desc_col: descCol, cat_col: catCol}));
