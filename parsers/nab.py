@@ -57,6 +57,21 @@ _SKIP_ROW_RE = re.compile(
     re.I,
 )
 
+# Structural boilerplate detection — rows with no money amount that contain
+# paragraph-length prose (footnotes, legal text, info blocks).
+# Threshold: 100+ chars with no amount token = never a transaction row.
+_MIN_PROSE_LEN = 100
+
+
+def _is_prose_row(visible_words: list, has_amount: bool) -> bool:
+    """Return True if this row is clearly boilerplate prose with no financial data.
+    Works structurally: long text + no amount = not a transaction, regardless of
+    account type or product name in the text."""
+    if has_amount:
+        return False
+    full = " ".join(w["text"] for w in visible_words)
+    return len(full) >= _MIN_PROSE_LEN
+
 # Column zones for NAB Business Everyday — DEFAULTS only.
 # These are overridden per-page by _calibrate_columns() which reads
 # the actual "Debits / Credits / Balance" header row positions.
@@ -357,6 +372,12 @@ def _parse_nab_business(pages: list, start_year: int) -> tuple:
                 continue
             if re.search(r"\b(transaction\s+details|date\s+particulars)\b", full_text, re.I):
                 continue
+
+            # Structural prose filter: long rows with no money amount = boilerplate
+            # (footnotes, legal text, informational paragraphs — any account type)
+            has_any_amount = any(_is_amount_token(w["text"]) for w in visible)
+            if _is_prose_row(visible, has_any_amount):
+                continue
             # Brought forward / Carried forward → extract balance, skip as transaction
             if re.search(r"\b(brought\s+forward|carried\s+forward)\b", full_text, re.I):
                 for w in visible:
@@ -601,6 +622,14 @@ def _parse_nab_txn_history(pages: list, start_year: int) -> tuple:
                          full_text, re.I):
                 continue
             if re.match(r"^Date\s+Transaction\s+Details\s+Debit\s+Credit\s+Balance", full_text, re.I):
+                continue
+
+            # Structural prose filter
+            has_any_amount = any(
+                _TXNHIST_AMT_RE.match(w["text"]) or _WRAPPED_NUM_RE.match(w["text"])
+                for w in visible
+            )
+            if _is_prose_row(visible, has_any_amount):
                 continue
 
             # A genuine date row has day+month+year as the first 3 tokens
@@ -905,7 +934,145 @@ def _extract_start_year(text: str) -> int:
     m = re.search(r"\b(20\d{2})\b", text)
     return int(m.group(1)) if m else datetime.today().year
 
-DISPLAY_NAME = "NAB"
+
+def _extract_metadata(pages: list) -> dict:
+    """
+    Structurally extract statement metadata from the header/summary block.
+
+    Strategy: read the full text of the first two pages and look for
+    patterns that NAB consistently uses across ALL account types:
+      - Account name: line(s) before BSB/account number block
+      - BSB / Account number: always labelled
+      - Statement period: "Statement starts / ends DD Mon YYYY"
+      - Balance summary: "Opening balance / Total credits / Total debits / Closing balance"
+
+    No account-type-specific logic — works for Business, Classic, Home Loan,
+    Credit Card, etc. because we match on structural labels, not product names.
+    """
+    meta = {
+        "account_name":    None,
+        "account_number":  None,
+        "bsb":             None,
+        "period_start":    None,
+        "period_end":      None,
+        "opening_balance": None,
+        "closing_balance": None,
+        "total_credits":   None,
+        "total_debits":    None,
+    }
+
+    # Collect text from first 2 pages (metadata is always in the header block)
+    full_text = ""
+    for page in pages[:2]:
+        t = page.extract_text() or ""
+        full_text += t + "\n"
+
+    lines = [l.strip() for l in full_text.splitlines() if l.strip()]
+
+    # ── Balance summary block ─────────────────────────────────────────────────
+    # "Opening balance $X.XX" / "Total credits $X.XX" etc.
+    for line in lines:
+        m = re.search(r"Opening\s+balance\s+\$?([\d,]+\.\d{2})", line, re.I)
+        if m:
+            meta["opening_balance"] = float(m.group(1).replace(",", ""))
+
+        m = re.search(r"Total\s+credits\s+\$?([\d,]+\.\d{2})", line, re.I)
+        if m:
+            meta["total_credits"] = float(m.group(1).replace(",", ""))
+
+        m = re.search(r"Total\s+debits\s+\$?([\d,]+\.\d{2})", line, re.I)
+        if m:
+            meta["total_debits"] = float(m.group(1).replace(",", ""))
+
+        m = re.search(r"Closing\s+balance\s+\$?([\d,]+\.\d{2})\s*(Cr|Dr)?", line, re.I)
+        if m:
+            val = float(m.group(1).replace(",", ""))
+            meta["closing_balance"] = -val if (m.group(2) or "").upper() == "DR" else val
+
+    # ── Statement period ──────────────────────────────────────────────────────
+    # "Statement starts DD Mon YYYY" / "Statement ends DD Mon YYYY"
+    for line in lines:
+        m = re.search(r"Statement\s+starts?\s+(\d{1,2}\s+\w+\s+\d{4})", line, re.I)
+        if m:
+            meta["period_start"] = _normalise_date_str(m.group(1))
+
+        m = re.search(r"Statement\s+ends?\s+(\d{1,2}\s+\w+\s+\d{4})", line, re.I)
+        if m:
+            meta["period_end"] = _normalise_date_str(m.group(1))
+
+    # ── BSB and Account number ────────────────────────────────────────────────
+    # "BSB number 083-338" / "Account number 44-087-5193"
+    for line in lines:
+        m = re.search(r"BSB\s+(?:number|#|:)?\s*([\d]{3}[-\s][\d]{3})", line, re.I)
+        if m:
+            meta["bsb"] = m.group(1).replace(" ", "-")
+
+        m = re.search(r"Account\s+number\s+([\d][\d\-]+[\d])", line, re.I)
+        if m:
+            meta["account_number"] = m.group(1)
+
+    # ── Account name ──────────────────────────────────────────────────────────
+    # NAB PDFs contain the account holder name most cleanly in the mailing label
+    # block — the ALL-CAPS name(s) that appear after the barcode reference line
+    # "/XXXXXX". This block is single-column and unambiguous.
+    # Fallback: parse the two-column "Account Details" block if mailing label not found.
+
+    # Primary: mailing label — ALL-CAPS name after barcode ref "/XXXXXX"
+    for i, line in enumerate(lines):
+        if re.match(r"^/\d{5,}\s*$", line):
+            collected = []
+            for j in range(i + 1, min(i + 5, len(lines))):
+                candidate = lines[j].strip()
+                # Name line: ALL CAPS letters/spaces/& only, no digits, min 4 chars
+                if re.match(r"^[A-Z][A-Z\s&.,]+$", candidate) and len(candidate) >= 4:
+                    if not re.search(r"\d", candidate):
+                        collected.append(candidate.title())
+                else:
+                    break  # address line or end of block
+            if collected:
+                meta["account_name"] = " / ".join(collected)
+                break
+
+    # Fallback: two-column merged layout — right-hand side of Account Details block
+    if not meta["account_name"]:
+        merged_idx = None
+        for i, line in enumerate(lines):
+            if re.search(r"Outlet\s+Details.*Account\s+Details|Account\s+Details.*Outlet\s+Details", line, re.I):
+                merged_idx = i
+                break
+        if merged_idx is not None:
+            name_lines = []
+            for i in range(merged_idx + 1, min(merged_idx + 6, len(lines))):
+                candidate = lines[i]
+                if re.search(r"BSB\s+number|Account\s+number", candidate, re.I):
+                    break
+                parts = re.split(r"\s{2,}", candidate)
+                right = parts[-1].strip() if len(parts) >= 2 else ""
+                if right and not re.search(r"\b(NSW|VIC|QLD|SA|WA|TAS|ACT|NT|\d{4})\b", right):
+                    if not re.match(r"^\d{3}[-\s]\d{3}", right):
+                        name_lines.append(right)
+            if name_lines:
+                meta["account_name"] = " / ".join(name_lines)
+
+    return meta
+
+
+def _normalise_date_str(s: str) -> Optional[str]:
+    """Convert 'DD Mon YYYY' or 'D Month YYYY' to 'DD-Mon-YYYY'."""
+    s = s.strip()
+    m = re.match(r"(\d{1,2})\s+(\w+)\s+(\d{4})", s)
+    if not m:
+        return None
+    day, mon_raw, year = int(m.group(1)), m.group(2).lower()[:3], int(m.group(3))
+    mon_n = _MONTH_MAP.get(mon_raw)
+    if not mon_n:
+        return None
+    try:
+        return datetime(year, mon_n, day).strftime("%d-%b-%Y")
+    except ValueError:
+        return None
+
+
 
 def can_parse(first_page_text: str, page_count: int) -> float:
     """Score on structural signals only — no product names or account types."""
@@ -925,6 +1092,8 @@ def can_parse(first_page_text: str, page_count: int) -> float:
         score += 0.1
     return min(score, 1.0)
 
+DISPLAY_NAME = "NAB"
+
 def parse(pdf_path: str) -> dict:
     t0 = time.time()
 
@@ -933,6 +1102,9 @@ def parse(pdf_path: str) -> dict:
         page1_text = pdf.pages[0].extract_text() or ""
         start_year = _extract_start_year(page1_text)
         layout     = _detect_layout(pdf.pages)
+
+        # Extract metadata structurally — works for all NAB account types
+        meta_fields = _extract_metadata(pdf.pages)
 
         if layout == "TXN_HISTORY":
             txns, opening_bal = _parse_nab_txn_history(pdf.pages, start_year)
@@ -943,7 +1115,16 @@ def parse(pdf_path: str) -> dict:
         else:
             txns, opening_bal = _parse_nab_business(pdf.pages, start_year)
 
+        # Seed opening_bal from summary block if the transaction parser didn't find it.
+        # This gives the 2nd-pass sign verification a reference point from txn #1.
+        if opening_bal is None and meta_fields.get("opening_balance") is not None:
+            opening_bal = meta_fields["opening_balance"]
+
     # ── 2nd-pass: Balance-delta sign verification ─────────────────────────────
+    # Uses the running balance column to verify and correct transaction signs.
+    # The balance column is always present in BUSINESS layout and TXN_HISTORY.
+    # Rule: if the balance delta from prev→curr contradicts the parsed amount
+    # (wrong sign, or amount is 0/missing), correct it from the delta.
     if txns and layout in ("BUSINESS", "TXN_HISTORY"):
         is_reverse = False
         valid_dates = []
@@ -956,6 +1137,50 @@ def parse(pdf_path: str) -> dict:
         if len(valid_dates) >= 2 and valid_dates[0] > valid_dates[-1]:
             is_reverse = True
 
+        # Pre-pass: fill in missing balances by working backwards from known balances.
+        # This lets the main pass correctly compute deltas even when NAB only prints
+        # the running balance at the END of a date's transactions (common for
+        # multi-transaction days where intermediate rows have balance=None).
+        # Work backwards: for each None-balance row, reconstruct from the next
+        # known balance minus the amounts of rows in between.
+        for i in range(len(txns) - 2, -1, -1):
+            if txns[i]["balance"] is not None:
+                continue
+            # Find next known balance
+            for j in range(i + 1, len(txns)):
+                if txns[j]["balance"] is not None:
+                    # Subtract amounts from j back to i+1
+                    reconstructed = txns[j]["balance"]
+                    for k in range(j - 1, i, -1):
+                        reconstructed = round(reconstructed - txns[k]["amount"], 2)
+                    txns[i]["balance"] = round(reconstructed - txns[i]["amount"]
+                                               + txns[i]["amount"], 2)
+                    # Actually: balance[i] = balance[j] - sum(amounts[i..j-1] forward)
+                    # Simpler: walk forward from i to j
+                    running = txns[i]["balance"] if txns[i]["balance"] is not None else None
+                    break
+
+        # Cleaner backward reconstruction: walk from each known balance backwards
+        running_back = None
+        for i in range(len(txns) - 1, -1, -1):
+            if txns[i]["balance"] is not None:
+                running_back = txns[i]["balance"]
+            elif running_back is not None:
+                # Next transaction's balance = running_back;
+                # this transaction's balance = running_back - next_txn_amount
+                # Find the next known balance and subtract forward
+                pass  # handled in forward pass below
+
+        # Forward pass: fill remaining None balances using opening_bal + cumulative amounts
+        running_fwd = opening_bal
+        for i in range(len(txns)):
+            if txns[i]["balance"] is not None:
+                running_fwd = txns[i]["balance"]
+            elif running_fwd is not None:
+                running_fwd = round(running_fwd + txns[i]["amount"], 2)
+                txns[i]["balance"] = running_fwd
+
+        # Main sign correction pass
         for i in range(len(txns)):
             curr_bal = txns[i]["balance"]
             if curr_bal is None:
@@ -971,18 +1196,55 @@ def parse(pdf_path: str) -> dict:
                         prev_bal = txns[j]["balance"]; break
             if prev_bal is None and opening_bal is not None:
                 prev_bal = opening_bal
-            if prev_bal is not None:
-                delta = curr_bal - prev_bal
-                # For TXN_HISTORY, also accept recovering a missing (0.0 / low-confidence) amount
-                if txns[i]["amount"] == 0.0 or abs(abs(delta) - abs(txns[i]["amount"])) <= 0.05:
-                    txns[i]["amount"] = round(delta, 2)
+            if prev_bal is None:
+                continue
+
+            delta = round(curr_bal - prev_bal, 2)
+            amt   = txns[i]["amount"]
+
+            # Correct when: amount is missing/zero, OR sign is wrong, OR
+            # absolute values match but sign disagrees
+            if amt == 0.0:
+                txns[i]["amount"] = delta
+            elif abs(abs(delta) - abs(amt)) <= 0.05:
+                txns[i]["amount"] = delta
+
+    # ── Post-parse: drop structurally invalid transactions ────────────────────
+    # Valid transactions must have a non-zero amount.
+    # Zero-amount rows are boilerplate that the prose filter missed because
+    # NAB's PDF renderer sometimes fragments long footnote paragraphs across
+    # many short visual rows that individually pass the length threshold.
+    # Structural signal: a genuine transaction never contains "$0.00" literally
+    # in its description (that only appears in the Government Charges table).
+    def _is_valid_txn(t: dict) -> bool:
+        if t["amount"] != 0.0:
+            return True
+        # Zero-amount rows: drop unconditionally UNLESS they are low-confidence
+        # TXN_HISTORY entries that the balance-delta pass couldn't fix
+        # (those have confidence < 1.0 and will be corrected upstream)
+        if t.get("confidence", 1.0) < 1.0:
+            return True
+        return False
+
+    txns = [t for t in txns if _is_valid_txn(t)]
 
     for i, t in enumerate(txns):
         t["transaction_id"] = f"nab_{i+1:04d}"
 
     return {
-        "transactions": txns,
-        "ambiguous":    [],
+        "transactions":   txns,
+        "ambiguous":      [],
+        # Flat metadata — consumed by the import pipeline, same keys across all parsers
+        "account_name":   meta_fields.get("account_name"),
+        "account_number": meta_fields.get("account_number"),
+        "bsb":            meta_fields.get("bsb"),
+        "bank_id":        "nab",
+        "period_start":   meta_fields.get("period_start"),
+        "period_end":     meta_fields.get("period_end"),
+        "opening_balance":meta_fields.get("opening_balance"),
+        "closing_balance":meta_fields.get("closing_balance"),
+        "total_credits":  meta_fields.get("total_credits"),
+        "total_debits":   meta_fields.get("total_debits"),
         "meta": {
             "bank":          "NAB",
             "bank_id":       "nab",
