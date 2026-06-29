@@ -300,6 +300,11 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
     <div class="nav-item" data-page="aivision"><span class="ic">🔍</span> AI Vision</div>
     <div class="nav-item" id="chatToggleNav"><span class="ic">≡</span> AI Chat</div>
   </div>
+  <div class="nav-group">
+    <div class="nav-label">Management</div>
+    <div class="nav-item" data-page="vendormemory"><span class="ic">🧠</span> Vendor Memory</div>
+    <div class="nav-item" data-page="categorymanager"><span class="ic">📋</span> Category Manager</div>
+  </div>
   <div class="sidebar-footer" id="sidebarFooter">No statement loaded</div>
 </aside>
 
@@ -635,14 +640,33 @@ input[type="text"], input[type="date"], textarea, select { font-family: var(--sa
 <div class="page" id="page-pnl">
   <div class="page-header">
     <h1>Profit &amp; Loss</h1>
-    <span class="sub" id="pnlViewSub">Showing Net P&amp;L (ex-GST on expenses) — accounting view</span>
+    <span class="sub" id="pnlViewSub">Gross P&L — GST-inclusive amounts (raw bank values)</span>
     <div class="right" style="display:flex;gap:8px;">
-      <button class="btn-sec" id="pnlToggleView" onclick="togglePnlView()">Switch to Gross View</button>
+      <button class="btn-sec" id="pnlToggleView" onclick="togglePnlView()">Switch to Net View</button>
       <a id="pnlExportBtn" href="#" class="btn-sec" style="text-decoration:none;font-size:12px;">⬇ Export P&amp;L (.xlsx)</a>
     </div>
   </div>
   <div class="wf-content">
-    <div class="panel" id="pnlContent"></div>
+    <!-- Summary tiles -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;" id="pnlSummaryTiles"></div>
+    <!-- Category-wise table -->
+    <div class="panel" style="padding:0;">
+      <div class="wf-table-scroll">
+        <table class="wf-table" id="pnlTable">
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>P&L Group</th>
+              <th style="text-align:right;" id="pnlColGross">Gross Amount</th>
+              <th style="text-align:right;" id="pnlColNet">Net Amount (ex-GST)</th>
+              <th style="text-align:right;">Txn Count</th>
+            </tr>
+          </thead>
+          <tbody id="pnlTableBody"></tbody>
+          <tfoot id="pnlTableFoot"></tfoot>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -796,6 +820,134 @@ Use negative amounts for debits/withdrawals, positive for credits/deposits.</tex
     <div style="padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;">
       <textarea id="avChatInput" placeholder="Ask a question about the image or extracted transactions…" style="flex:1;min-height:40px;max-height:120px;padding:8px 12px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);color:var(--text);resize:none;outline:none;font-family:var(--sans);line-height:1.5;" rows="1"></textarea>
       <button class="btn" id="avChatSendBtn">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAGE: VENDOR MEMORY
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-vendormemory">
+  <div class="page-header">
+    <h1>🧠 Vendor Memory</h1>
+    <span class="sub">Auto-learned description → category mappings · Used for future suggestions</span>
+    <div class="right">
+      <button class="btn-sec" onclick="loadVendorMemory()">↻ Refresh</button>
+      <button class="btn" id="vmClearAllBtn" style="background:var(--red);border-color:var(--red);" onclick="clearAllVendorMemory()">🗑 Clear All</button>
+    </div>
+  </div>
+  <div class="wf-content">
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div>
+          <h2 style="margin-bottom:2px;">Learned Patterns</h2>
+          <div class="psub" style="margin:0;">Sorted by usage frequency · Click 🗑 to delete an entry</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="vmSearch" placeholder="Filter patterns…" oninput="filterVmTable()" style="border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;background:var(--surface2);color:var(--text);width:180px;">
+          <span id="vmCount" style="font-size:11px;color:var(--muted);white-space:nowrap;"></span>
+        </div>
+      </div>
+      <div class="wf-table-scroll">
+        <table class="wf-table" id="vmTable">
+          <thead><tr>
+            <th>Pattern (Normalized Description)</th>
+            <th>Category</th>
+            <th>P&L Group</th>
+            <th style="text-align:center;">GST</th>
+            <th style="text-align:right;">Hit Count</th>
+            <th>Last Updated</th>
+            <th style="text-align:center;">Action</th>
+          </tr></thead>
+          <tbody id="vmBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin-bottom:8px;">Import BAS History</h2>
+      <div class="psub">Upload a previous BAS export (.xlsx/.csv) to pre-train vendor memory with known categorizations.</div>
+      <div style="display:flex;gap:10px;align-items:flex-start;margin-top:10px;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Select Client</div>
+          <select id="vmImportClientSel" style="border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:11px;background:var(--surface2);color:var(--text);min-width:160px;"></select>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">BAS Export File</div>
+          <input type="file" id="vmImportFile" accept=".csv,.xlsx,.xls" style="font-size:11px;">
+        </div>
+        <div style="padding-top:18px;">
+          <button class="btn" onclick="startBasImport()">Upload &amp; Map →</button>
+        </div>
+      </div>
+      <div id="vmImportMapping" style="display:none;margin-top:14px;"></div>
+      <div id="vmImportResult" style="margin-top:10px;font-size:11px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     PAGE: CATEGORY MANAGER
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-categorymanager">
+  <div class="page-header">
+    <h1>📋 Category Manager</h1>
+    <span class="sub">View and edit all categories · Changes apply to future categorizations</span>
+    <div class="right">
+      <button class="btn-sec" onclick="loadCategoryManager()">↻ Refresh</button>
+      <button class="btn" onclick="showAddCategoryModal()">+ Add Category</button>
+    </div>
+  </div>
+  <div class="wf-content">
+    <div class="panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div>
+          <h2 style="margin-bottom:2px;">All Categories</h2>
+          <div class="psub" style="margin:0;">Click any field to edit inline · Inactive categories are greyed out</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="catMgrSearch" placeholder="Filter categories…" oninput="filterCatManager()" style="border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;background:var(--surface2);color:var(--text);width:180px;">
+          <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" id="catMgrShowInactive" onchange="loadCategoryManager()"> Show inactive
+          </label>
+        </div>
+      </div>
+      <div class="wf-table-scroll">
+        <table class="wf-table" id="catMgrTable">
+          <thead><tr>
+            <th>Name</th>
+            <th>P&L Group</th>
+            <th>BAS Label</th>
+            <th style="text-align:center;">GST?</th>
+            <th style="text-align:center;">Status</th>
+            <th style="text-align:center;">Actions</th>
+          </tr></thead>
+          <tbody id="catMgrBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Category Modal -->
+<div id="addCatModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:900;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:400px;max-width:95vw;">
+    <h2 style="margin-bottom:16px;font-size:14px;">Add Category</h2>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div><label style="font-size:11px;color:var(--muted);">Name</label><input id="newCatName" style="width:100%;margin-top:3px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;background:var(--surface2);color:var(--text);box-sizing:border-box;"></div>
+      <div><label style="font-size:11px;color:var(--muted);">P&L Group</label>
+        <select id="newCatGroup" style="width:100%;margin-top:3px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;background:var(--surface2);color:var(--text);">
+          <option>Income</option><option>Direct Cost</option><option selected>Expense</option><option>Excluded</option>
+        </select></div>
+      <div><label style="font-size:11px;color:var(--muted);">BAS Label</label>
+        <select id="newCatBas" style="width:100%;margin-top:3px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:12px;background:var(--surface2);color:var(--text);">
+          <option value="G1">G1 (Sales)</option><option value="G11" selected>G11 (Purchases)</option><option value="excluded">Excluded</option>
+        </select></div>
+      <div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="newCatGst" checked><label for="newCatGst" style="font-size:12px;">GST Applicable (10%)</label></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;justify-content:flex-end;">
+      <button class="btn-sec" onclick="document.getElementById('addCatModal').style.display='none'">Cancel</button>
+      <button class="btn" onclick="submitAddCategory()">Add Category</button>
     </div>
   </div>
 </div>
@@ -1005,6 +1157,8 @@ function goPage(name) {
   if (name === "clients")      loadClients();
   if (name === "aicategorize") loadAiCategorizePage();
   if (name === "aivision")    initAiVisionPage();
+  if (name === "vendormemory") { _vmClientId = clientId; loadVendorMemory(); }
+  if (name === "categorymanager") loadCategoryManager();
 }
 document.querySelectorAll(".nav-item").forEach(item => {
   if (item.id === "chatToggleNav") return;
@@ -2108,106 +2262,312 @@ document.getElementById("gstContinueBtn").addEventListener("click", async () => 
 
 // ── P&L ──────────────────────────────────────────────────────────────────
 let _pnlData = null;
+let _pnlShowGross = true; // default: gross view (raw bank values)
 
 function togglePnlView() {
   _pnlShowGross = !_pnlShowGross;
   document.getElementById('pnlToggleView').textContent = _pnlShowGross ? 'Switch to Net View' : 'Switch to Gross View';
   document.getElementById('pnlViewSub').textContent = _pnlShowGross
-    ? 'Showing Gross P&L (GST-inclusive bank amounts) — matches DR/CR net'
-    : 'Showing Net P&L (ex-GST on expenses) — accounting/tax view';
+    ? 'Gross P&L — GST-inclusive amounts (raw bank values)'
+    : 'Net P&L — Income GST-inclusive · Expenses ex-GST (accounting view)';
   renderPnl(_pnlData);
 }
 
 function renderPnl(d) {
   if (!d) return;
-  const g = _pnlShowGross; // gross mode
+  const g = _pnlShowGross;
 
-  const incomeLines     = (g ? d.gross_income_lines      : d.income_lines)      || [];
-  const directCostLines = (g ? d.gross_direct_cost_lines : d.direct_cost_lines) || [];
-  const expenseLines    = (g ? d.gross_expense_lines     : d.expense_lines)     || [];
+  // Category-wise rows from backend
+  const rows = (g ? d.gross_category_rows : d.net_category_rows) || [];
   const totalIncome     = (g ? d.gross_total_income      : d.total_income)      || 0;
   const totalDirectCost = (g ? d.gross_total_direct_cost : d.total_direct_cost) || 0;
   const grossProfit     = (g ? d.gross_profit_gross      : d.gross_profit)      || 0;
   const totalExpense    = (g ? d.gross_total_expense     : d.total_expense)     || 0;
   const netProfit       = (g ? d.gross_net_profit        : d.net_profit)        || 0;
 
-  function renderSection(title, lines, total, color) {
-    if (!lines.length) return '';
-    return `<div style="margin-bottom:16px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding-bottom:5px;border-bottom:2px solid ${color};">
-        <span style="font-size:12px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.4px;">${title}</span>
-        <span style="font-family:var(--mono);font-weight:700;font-size:13px;color:${color};">${fmt(total)}</span>
-      </div>
-      ${lines.map(ln => `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid var(--border);">
-        <span style="color:var(--text-dim);">${esc(ln.category)}</span>
-        <span style="font-family:var(--mono);color:var(--text);">${fmt(ln.amount)}</span>
-      </div>`).join('')}
-    </div>`;
+  // Summary tiles
+  const tiles = [
+    { label: 'Total Income',  val: totalIncome,  color: 'var(--green)' },
+    { label: 'Total Expenses', val: totalExpense, color: 'var(--red)' },
+    { label: 'Net Profit / Loss', val: netProfit, color: netProfit >= 0 ? 'var(--green)' : 'var(--red)' },
+  ];
+  document.getElementById('pnlSummaryTiles').innerHTML = tiles.map(t =>
+    `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">${t.label}</div>
+      <div style="font-size:20px;font-weight:800;font-family:var(--mono);color:${t.color};">${fmt(t.val)}</div>
+    </div>`
+  ).join('');
+
+  // Group colour & order
+  const GROUP_ORDER = { 'Income': 0, 'Direct Cost': 1, 'Expense': 2, 'Excluded': 3 };
+  const GROUP_COLOR = { 'Income': 'var(--green)', 'Direct Cost': 'var(--amber)', 'Expense': 'var(--red)', 'Excluded': 'var(--muted)' };
+
+  if (!rows.length) {
+    document.getElementById('pnlTableBody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px;">No categorized transactions yet. Complete the Categorize step first.</td></tr>';
+    document.getElementById('pnlTableFoot').innerHTML = '';
+    return;
   }
 
-  function subtotalRow(label, value, color) {
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:8px;margin-bottom:16px;">
-      <span style="font-size:12px;font-weight:700;color:${color};">${label}</span>
-      <span style="font-family:var(--mono);font-weight:700;font-size:13px;color:${color};">${fmt(value)}</span>
-    </div>`;
+  // Sort rows by group order then by category name
+  const sorted = [...rows].sort((a, b) => {
+    const go = (GROUP_ORDER[a.pnl_group] ?? 4) - (GROUP_ORDER[b.pnl_group] ?? 4);
+    if (go !== 0) return go;
+    return (a.category || '').localeCompare(b.category || '');
+  });
+
+  let lastGroup = null;
+  let bodyHtml = '';
+  for (const row of sorted) {
+    const grp = row.pnl_group || 'Excluded';
+    const col = GROUP_COLOR[grp] || 'var(--muted)';
+    if (grp !== lastGroup) {
+      bodyHtml += `<tr style="background:var(--surface2);">
+        <td colspan="5" style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:${col};padding:6px 10px;">${esc(grp)}</td>
+      </tr>`;
+      lastGroup = grp;
+    }
+    const amount = row.amount ?? 0;
+    const netAmt = row.net_amount ?? amount;
+    // Income: positive amounts. Expense/Direct Cost: show as positive for readability (they are stored as negative raw)
+    const dispGross = (grp === 'Income') ? amount : Math.abs(amount);
+    const dispNet   = (grp === 'Income') ? netAmt : Math.abs(netAmt);
+    const amtColor  = grp === 'Income' ? 'var(--green)' : grp === 'Expense' || grp === 'Direct Cost' ? 'var(--red)' : 'var(--muted)';
+    bodyHtml += `<tr>
+      <td style="padding-left:18px;">${esc(row.category || '—')}</td>
+      <td><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:${col}20;color:${col};font-weight:700;">${esc(grp)}</span></td>
+      <td style="text-align:right;font-family:var(--mono);color:${amtColor};">${fmt(dispGross)}</td>
+      <td style="text-align:right;font-family:var(--mono);color:${amtColor};">${fmt(dispNet)}</td>
+      <td style="text-align:right;color:var(--muted);">${row.count || 0}</td>
+    </tr>`;
   }
+  document.getElementById('pnlTableBody').innerHTML = bodyHtml;
 
-  let html = '';
-  if (!incomeLines.length && !directCostLines.length && !expenseLines.length) {
-    html = '<div style="color:var(--muted);padding:20px;text-align:center;">No categorized transactions yet. Complete the Categorize step first.</div>';
-  } else {
-    // GST note panel
-    if (!g) {
-      html += `<div style="padding:8px 12px;background:rgba(124,58,237,.08);border:1px solid rgba(124,58,237,.2);border-radius:8px;margin-bottom:14px;font-size:11px;color:#7c3aed;">
-        <strong>Net P&L view:</strong> Income shown GST-inclusive · Expenses shown ex-GST (GST stripped). Switch to Gross view to match bank DR/CR net.
-      </div>`;
-    } else {
-      html += `<div style="padding:8px 12px;background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.2);border-radius:8px;margin-bottom:14px;font-size:11px;color:var(--accent);">
-        <strong>Gross P&L view:</strong> All amounts at GST-inclusive bank statement values. Net profit here equals the bank DR/CR net of $${fmt(netProfit)}.
-      </div>`;
-    }
-    html += renderSection('Revenue', incomeLines, totalIncome, 'var(--green)');
-    if (directCostLines.length) {
-      html += renderSection('Direct Costs', directCostLines, totalDirectCost, 'var(--amber)');
-      html += subtotalRow('Gross Profit', grossProfit, grossProfit >= 0 ? 'var(--green)' : 'var(--red)');
-    }
-    html += renderSection('Expenses', expenseLines, totalExpense, 'var(--red)');
-
-    // Excluded transfers reconciliation note
-    const exclTransfers = d.excluded_transfers || [];
-    if (exclTransfers.length) {
-      const exclTotal = exclTransfers.reduce((s, x) => s + x.amount, 0);
-      html += `<div style="margin-top:16px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;">
-        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">ℹ Excluded from P&L — Transfers & Equity Movements</div>
-        ${exclTransfers.map(x => `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid var(--border);">
-          <span style="color:var(--text-dim);">${esc(x.category)}</span>
-          <span style="font-family:var(--mono);color:var(--muted);">${fmt(x.amount)}</span>
-        </div>`).join('')}
-        <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;font-weight:700;">
-          <span style="color:var(--muted);">Net Transfers</span>
-          <span style="font-family:var(--mono);color:var(--muted);">${fmt(exclTotal)}</span>
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-top:4px;">Bank Transfers and Drawings are balance-sheet movements — excluded from P&L to avoid inflating revenue and expenses.</div>
-      </div>`;
-    }
-  }
-
-  const profitColor = netProfit >= 0 ? 'var(--green)' : 'var(--red)';
-  html += `<div style="padding:14px;background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-radius:10px;display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-    <span style="font-size:14px;font-weight:700;">Net Profit / Loss</span>
-    <span style="font-size:22px;font-weight:800;font-family:var(--mono);color:${profitColor};">${fmt(netProfit)}</span>
-  </div>`;
-
-  document.getElementById("pnlContent").innerHTML = html;
+  // Footer totals
+  document.getElementById('pnlTableFoot').innerHTML = `
+    ${totalDirectCost ? `<tr style="border-top:2px solid var(--amber);">
+      <td colspan="2" style="font-weight:700;color:var(--amber);font-size:11px;">GROSS PROFIT (after Direct Costs)</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:${grossProfit>=0?'var(--green)':'var(--red)'};">${fmt(grossProfit)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:700;color:${grossProfit>=0?'var(--green)':'var(--red)'};">${fmt(grossProfit)}</td>
+      <td></td>
+    </tr>` : ''}
+    <tr style="background:${netProfit>=0?'var(--green-lo)':'var(--red-lo)'};border-top:2px solid ${netProfit>=0?'var(--green)':'var(--red)'};">
+      <td colspan="2" style="font-weight:800;font-size:13px;color:${netProfit>=0?'var(--green)':'var(--red)'};">NET PROFIT / LOSS</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:800;font-size:14px;color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:800;font-size:14px;color:${netProfit>=0?'var(--green)':'var(--red)'};">${fmt(netProfit)}</td>
+      <td></td>
+    </tr>`;
 }
 
 async function loadPnl() {
   if (!statementId) return;
   _pnlData = await fetch(`/api/statements/${statementId}/pnl`).then(r=>r.json());
-  // Update P&L export href
   const pnlExp = document.getElementById('pnlExportBtn');
   if (pnlExp) pnlExp.href = `/api/statements/${statementId}/export/pnl`;
   renderPnl(_pnlData);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// VENDOR MEMORY PAGE
+// ══════════════════════════════════════════════════════════════════════════
+let _vmAllRows = [];
+let _vmClientId = null;
+
+async function loadVendorMemory() {
+  const cid = _vmClientId || clientId;
+  if (!cid) { document.getElementById('vmBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;">Select a client first from Client Management.</td></tr>'; return; }
+  _vmClientId = cid;
+  document.getElementById('vmBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">Loading…</td></tr>';
+  const rows = await fetch(`/api/clients/${cid}/vendor-memory`).then(r=>r.json()).catch(()=>[]);
+  _vmAllRows = rows;
+  renderVmTable(rows);
+  // Populate import client dropdown
+  const clientRows = await fetch('/api/clients').then(r=>r.json()).catch(()=>[]);
+  const sel = document.getElementById('vmImportClientSel');
+  if (sel) sel.innerHTML = clientRows.map(c=>`<option value="${c.id}" ${c.id==cid?'selected':''}>${esc(c.name)}</option>`).join('');
+}
+
+function renderVmTable(rows) {
+  document.getElementById('vmCount').textContent = `${rows.length} pattern${rows.length===1?'':'s'}`;
+  if (!rows.length) {
+    document.getElementById('vmBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;">No patterns learned yet. Categorize transactions to build vendor memory.</td></tr>';
+    return;
+  }
+  document.getElementById('vmBody').innerHTML = rows.map(r => `
+    <tr>
+      <td style="font-family:var(--mono);font-size:10.5px;">${esc(r.pattern)}</td>
+      <td><span style="font-weight:600;">${esc(r.category_name)}</span></td>
+      <td><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--surface3);color:var(--text-dim);">${esc(r.pnl_group||'—')}</span></td>
+      <td style="text-align:center;">${r.gst_applicable ? '✓' : '—'}</td>
+      <td style="text-align:right;font-family:var(--mono);">${r.hit_count}</td>
+      <td style="color:var(--muted);font-size:10px;">${r.updated_at ? r.updated_at.slice(0,16) : '—'}</td>
+      <td style="text-align:center;">
+        <button onclick="deleteVmEntry(${r.id}, this)" style="font-size:10px;padding:2px 7px;border-radius:4px;background:var(--red-lo);color:var(--red);border:1px solid rgba(239,68,68,.3);cursor:pointer;">🗑</button>
+      </td>
+    </tr>`).join('');
+}
+
+function filterVmTable() {
+  const q = (document.getElementById('vmSearch')?.value || '').toLowerCase();
+  const filtered = q ? _vmAllRows.filter(r => r.pattern.includes(q) || (r.category_name||'').toLowerCase().includes(q)) : _vmAllRows;
+  renderVmTable(filtered);
+}
+
+async function deleteVmEntry(vmId, btn) {
+  if (!_vmClientId) return;
+  btn.disabled = true; btn.textContent = '…';
+  await fetch(`/api/clients/${_vmClientId}/vendor-memory/${vmId}`, {method:'DELETE'});
+  _vmAllRows = _vmAllRows.filter(r => r.id !== vmId);
+  filterVmTable();
+}
+
+async function clearAllVendorMemory() {
+  if (!_vmClientId) return;
+  if (!confirm('Delete ALL vendor memory patterns for this client? This cannot be undone.')) return;
+  await fetch(`/api/clients/${_vmClientId}/vendor-memory`, {method:'DELETE'});
+  _vmAllRows = [];
+  renderVmTable([]);
+}
+
+// BAS History Import
+let _basImportPhase1 = null;
+async function startBasImport() {
+  const sel = document.getElementById('vmImportClientSel');
+  const cid = sel?.value;
+  const file = document.getElementById('vmImportFile')?.files[0];
+  if (!cid || !file) { document.getElementById('vmImportResult').textContent = '⚠ Select a client and file first.'; return; }
+  const fd = new FormData(); fd.append('file', file);
+  document.getElementById('vmImportResult').textContent = 'Reading file…';
+  document.getElementById('vmImportMapping').style.display = 'none';
+  const res = await fetch(`/api/clients/${cid}/import-bas-history`, {method:'POST', body: fd}).then(r=>r.json()).catch(e=>({error:String(e)}));
+  if (res.error) { document.getElementById('vmImportResult').textContent = '⚠ ' + res.error; return; }
+  if (res.phase === 1) {
+    _basImportPhase1 = {cid, file, headers: res.headers};
+    document.getElementById('vmImportResult').textContent = `Found ${res.row_count} rows · Select columns:`;
+    document.getElementById('vmImportMapping').style.display = 'block';
+    document.getElementById('vmImportMapping').innerHTML = `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div><div style="font-size:11px;color:var(--muted);margin-bottom:3px;">Description column</div>
+          <select id="vmDescCol" style="border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;background:var(--surface2);color:var(--text);">
+            ${res.headers.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}
+          </select></div>
+        <div><div style="font-size:11px;color:var(--muted);margin-bottom:3px;">Category column</div>
+          <select id="vmCatCol" style="border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:11px;background:var(--surface2);color:var(--text);">
+            ${res.headers.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('')}
+          </select></div>
+        <button class="btn" onclick="submitBasImport()">Import →</button>
+      </div>`;
+  }
+}
+async function submitBasImport() {
+  if (!_basImportPhase1) return;
+  const {cid, file} = _basImportPhase1;
+  const descCol = document.getElementById('vmDescCol')?.value;
+  const catCol  = document.getElementById('vmCatCol')?.value;
+  const fd = new FormData(); fd.append('file', file); fd.append('mapping', JSON.stringify({desc_col: descCol, cat_col: catCol}));
+  document.getElementById('vmImportResult').textContent = 'Importing…';
+  const res = await fetch(`/api/clients/${cid}/import-bas-history`, {method:'POST', body: fd}).then(r=>r.json()).catch(e=>({error:String(e)}));
+  document.getElementById('vmImportMapping').style.display = 'none';
+  if (res.error) { document.getElementById('vmImportResult').textContent = '⚠ ' + res.error; return; }
+  document.getElementById('vmImportResult').innerHTML = `<span style="color:var(--green);">✓ Imported ${res.learned} patterns</span> · ${res.skipped} skipped · Total: ${res.total_rows}${res.unknown_categories?.length ? ' · Unknown cats: ' + res.unknown_categories.join(', ') : ''}`;
+  _vmClientId = cid;
+  loadVendorMemory();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CATEGORY MANAGER PAGE
+// ══════════════════════════════════════════════════════════════════════════
+let _catMgrRows = [];
+
+async function loadCategoryManager() {
+  document.getElementById('catMgrBody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px;">Loading…</td></tr>';
+  const showInactive = document.getElementById('catMgrShowInactive')?.checked;
+  const url = '/api/categories' + (showInactive ? '?active_only=false' : '');
+  const rows = await fetch(url).then(r=>r.json()).catch(()=>[]);
+  _catMgrRows = rows;
+  filterCatManager();
+}
+
+function filterCatManager() {
+  const q = (document.getElementById('catMgrSearch')?.value || '').toLowerCase();
+  const filtered = q ? _catMgrRows.filter(r => (r.name||'').toLowerCase().includes(q) || (r.pnl_group||'').toLowerCase().includes(q)) : _catMgrRows;
+  renderCatManager(filtered);
+}
+
+function renderCatManager(rows) {
+  const GROUP_COLOR = { 'Income': 'var(--green)', 'Direct Cost': 'var(--amber)', 'Expense': 'var(--red)', 'Excluded': 'var(--muted)' };
+  if (!rows.length) { document.getElementById('catMgrBody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">No categories found.</td></tr>'; return; }
+  document.getElementById('catMgrBody').innerHTML = rows.map(r => {
+    const col = GROUP_COLOR[r.pnl_group] || 'var(--muted)';
+    const inactive = !r.is_active;
+    return `<tr style="${inactive?'opacity:.5;':''}">
+      <td style="font-weight:600;${inactive?'text-decoration:line-through;':''}"><span>${esc(r.name)}</span></td>
+      <td>
+        <select onchange="patchCategory(${r.id}, 'pnl_group', this.value)" style="border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:10.5px;background:var(--surface2);color:${col};font-weight:700;">
+          ${['Income','Direct Cost','Expense','Excluded'].map(g=>`<option value="${g}" ${r.pnl_group===g?'selected':''}>${g}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <select onchange="patchCategory(${r.id}, 'bas_label', this.value)" style="border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:10.5px;background:var(--surface2);color:var(--text);">
+          ${['G1','G11','excluded'].map(b=>`<option value="${b}" ${r.bas_label===b?'selected':''}>${b}</option>`).join('')}
+        </select>
+      </td>
+      <td style="text-align:center;">
+        <input type="checkbox" ${r.gst_applicable?'checked':''} onchange="patchCategory(${r.id}, 'gst_applicable', this.checked?1:0)">
+      </td>
+      <td style="text-align:center;">
+        <span style="font-size:10px;padding:2px 8px;border-radius:4px;background:${inactive?'var(--red-lo)':'var(--green-lo)'};color:${inactive?'var(--red)':'var(--green)'};">${inactive?'Inactive':'Active'}</span>
+      </td>
+      <td style="text-align:center;display:flex;gap:5px;justify-content:center;">
+        <button onclick="patchCategory(${r.id}, 'is_active', ${inactive?1:0})" style="font-size:10px;padding:2px 7px;border-radius:4px;background:var(--surface3);color:var(--text-dim);border:1px solid var(--border);cursor:pointer;" title="${inactive?'Activate':'Deactivate'}">${inactive?'↩ Activate':'⊘ Deactivate'}</button>
+        <button onclick="deleteCategoryMgr(${r.id}, this)" style="font-size:10px;padding:2px 7px;border-radius:4px;background:var(--red-lo);color:var(--red);border:1px solid rgba(239,68,68,.3);cursor:pointer;">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function patchCategory(catId, field, value) {
+  const res = await fetch(`/api/categories/${catId}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({[field]: value})
+  }).then(r=>r.json()).catch(()=>null);
+  if (res) {
+    const idx = _catMgrRows.findIndex(r => r.id === catId);
+    if (idx >= 0) { _catMgrRows[idx] = {..._catMgrRows[idx], ...res}; }
+    filterCatManager();
+  }
+}
+
+async function deleteCategoryMgr(catId, btn) {
+  btn.disabled = true; btn.textContent = '…';
+  const res = await fetch(`/api/categories/${catId}`, {method:'DELETE'}).then(r=>r.json()).catch(()=>null);
+  if (res?.deleted) {
+    _catMgrRows = _catMgrRows.filter(r => r.id !== catId);
+  } else if (res?.deactivated) {
+    const idx = _catMgrRows.findIndex(r => r.id === catId);
+    if (idx >= 0) _catMgrRows[idx].is_active = 0;
+    alert(res.message || 'Category deactivated (in use by transactions).');
+  }
+  filterCatManager();
+}
+
+function showAddCategoryModal() { document.getElementById('addCatModal').style.display = 'flex'; }
+
+async function submitAddCategory() {
+  const name  = document.getElementById('newCatName')?.value?.trim();
+  const group = document.getElementById('newCatGroup')?.value;
+  const bas   = document.getElementById('newCatBas')?.value;
+  const gst   = document.getElementById('newCatGst')?.checked ? 1 : 0;
+  if (!name) { alert('Name is required.'); return; }
+  const code = 'CUSTOM_' + name.toUpperCase().replace(/[^A-Z0-9]/g,'_').slice(0,20) + '_' + Date.now().toString(36).toUpperCase();
+  await fetch('/api/categories', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({code, name, pnl_group: group, gst_applicable: gst, gst_rate: gst ? 0.10 : 0, bas_label: bas})
+  });
+  document.getElementById('addCatModal').style.display = 'none';
+  document.getElementById('newCatName').value = '';
+  loadCategoryManager();
 }
 
 // ══════════════════════════════════════════════════════════════════════════

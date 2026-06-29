@@ -1,13 +1,19 @@
 """
 core/category_master.py — Single source of truth for the Category Master.
 
-52 nature-wise heads sourced from Australian_Charts_of_Account.csv.
+58 nature-wise heads sourced from Australian_Charts_of_Account.csv.
 GST treatment per ATO rules:
   GST on Income    → gst_applicable=1, bas_label=G1,  pnl_group=Income / Direct Cost
   GST on Expenses  → gst_applicable=1, bas_label=G11, pnl_group=Expense / Direct Cost
   GST Free Income  → gst_applicable=0, bas_label=G1,  pnl_group=Income
   GST Free Expenses→ gst_applicable=0, bas_label=G11, pnl_group=Expense
   BAS Excluded     → gst_applicable=0, bas_label=excluded, pnl_group=Excluded
+
+P&L grouping:
+  Income      → Revenue / credit-side
+  Direct Cost → COGS (subtracted before Gross Profit)
+  Expense     → Operating expenses (subtracted from Gross Profit → Net Profit)
+  Excluded    → Not shown in P&L (depreciation, tax, currency gains, uncategorized)
 """
 
 from core.db import get_db
@@ -15,19 +21,21 @@ from core.db import get_db
 # (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
 # pnl_group values: "Income" | "Direct Cost" | "Expense" | "Excluded"
 DEFAULT_CATEGORIES = [
-    # ── Revenue (GST on Income) ───────────────────────────────────────────
+    # ── Revenue — GST on Income ───────────────────────────────────────────
     ("SALES",               "Sales",                        "Income",      1, 0.10, "G1",       10),
     ("INCOME",              "Income",                       "Income",      1, 0.10, "G1",       20),
     ("OTHER_REVENUE",       "Other Revenue",                "Income",      1, 0.10, "G1",       30),
 
-    # ── Revenue (GST Free Income) ─────────────────────────────────────────
+    # ── Revenue — GST Free Income ─────────────────────────────────────────
     ("INTEREST_INCOME",     "Interest Income",              "Income",      0, 0.0,  "G1",       40),
+    ("BANK_TRANSFER_CR",    "Bank Transfers Credit",        "Income",      0, 0.0,  "G1",       50),
+    ("DRAWINGS_CR",         "Drawings Credit",              "Income",      0, 0.0,  "G1",       55),
 
-    # ── Other Income ─────────────────────────────────────────────────────
-    ("OTHER_INCOME",        "Other Income",                 "Income",      0, 0.0,  "G1",       45),
+    # ── Other Income — BAS Excluded ───────────────────────────────────────
+    ("GOVT_GRANT",          "Government Grant",             "Income",      0, 0.0,  "excluded", 60),
 
-    # ── Direct Costs (GST on Expenses) ───────────────────────────────────
-    ("COGS",                "Cost of Goods Sold",           "Direct Cost", 1, 0.10, "G11",      60),
+    # ── Direct Costs — GST on Expenses ───────────────────────────────────
+    ("COGS",                "Cost of Goods Sold",           "Direct Cost", 1, 0.10, "G11",      100),
 
     # ── Expenses — GST on Expenses ───────────────────────────────────────
     ("IT_DEV",              "IT Development Expense",       "Expense",     1, 0.10, "G11",      110),
@@ -58,6 +66,7 @@ DEFAULT_CATEGORIES = [
     ("SUBSCRIPTIONS",       "Subscriptions",                "Expense",     1, 0.10, "G11",      360),
     ("TELEPHONE",           "Telephone & Internet",         "Expense",     1, 0.10, "G11",      370),
     ("TRAVEL_NATIONAL",     "Travel - National",            "Expense",     1, 0.10, "G11",      380),
+    ("ACCOUNTING_FEES",     "Accounting Fees",              "Expense",     1, 0.10, "G11",      385),
 
     # ── Expenses — GST Free ──────────────────────────────────────────────
     ("DONATION",            "Donation",                     "Expense",     0, 0.0,  "G11",      390),
@@ -69,16 +78,21 @@ DEFAULT_CATEGORIES = [
     ("INTEREST_EXP",        "Interest Expense",             "Expense",     0, 0.0,  "G11",      450),
     ("MV_REGO",             "MV Rego",                      "Expense",     0, 0.0,  "G11",      460),
     ("TRAVEL_INTL",         "Travel - International",       "Expense",     0, 0.0,  "G11",      470),
+    ("GUARANTEE_FEES",      "Guarantee Fees",               "Expense",     0, 0.0,  "G11",      475),
+    ("BANK_TRANSFER_DR",    "Bank Transfers Debit",         "Expense",     0, 0.0,  "G11",      480),
+    ("DRAWINGS_DR",         "Drawings Debit",               "Expense",     0, 0.0,  "G11",      485),
+
+    # ── Expenses — BAS Excluded (no GST, not on BAS) ─────────────────────
+    ("WAGES",               "Wages and Salaries",           "Expense",     0, 0.0,  "excluded", 490),
+    ("SUPER",               "Superannuation",               "Expense",     0, 0.0,  "excluded", 495),
+    ("DEPRECIATION",        "Depreciation",                 "Expense",     0, 0.0,  "excluded", 500),
+    ("BANK_REVALS",         "Bank Revaluations",            "Expense",     0, 0.0,  "excluded", 505),
+    ("UNREALISED_FX",       "Unrealised Currency Gains",    "Expense",     0, 0.0,  "excluded", 510),
+    ("REALISED_FX",         "Realised Currency Gains",      "Expense",     0, 0.0,  "excluded", 515),
+    ("INCOME_TAX",          "Income Tax Expense",           "Expense",     0, 0.0,  "excluded", 520),
+    ("STRIPE_FEES",         "Stripe Fees",                  "Expense",     0, 0.0,  "excluded", 525),
 
     # ── System ───────────────────────────────────────────────────────────
-    ("ACCOUNTING_EXP",      "Accounting Expense",           "Expense",     1, 0.10, "G11",      475),
-    # Bank Transfers and Drawings are balance-sheet / equity items — excluded from P&L
-    # so they do NOT inflate both income and expense sides of the statement.
-    ("BANK_TRANSFER_OUT",   "Bank Transfer (Sent)",         "Excluded",    0, 0.0,  "excluded", 480),
-    ("BANK_TRANSFER_IN",    "Bank Transfer (Received)",     "Excluded",    0, 0.0,  "excluded", 481),
-    ("DRAWINGS_PAID",       "Drawings (Paid)",              "Excluded",    0, 0.0,  "excluded", 490),
-    ("DRAWINGS_RECD",       "Drawings (Received)",          "Excluded",    0, 0.0,  "excluded", 491),
-    ("GUARANTEE_FEES",      "Guarantee Fees",               "Expense",     0, 0.0,  "G11",      495),
     ("UNCATEGORIZED",       "Uncategorized",                "Excluded",    0, 0.0,  "excluded", 999),
 ]
 
@@ -88,10 +102,9 @@ def seed_categories():
     Wipes all existing categories and re-seeds from DEFAULT_CATEGORIES.
     Transactions pointing at old category IDs will have category_id set to NULL
     (uncategorized) — user re-categorizes from the new list.
-    Called once on app start.
+    Called once on app start or intentional full reset only.
     """
     conn = get_db()
-    # Null out any transaction references so FK constraints don't block deletion
     conn.execute("PRAGMA foreign_keys = OFF")
     conn.execute("UPDATE transactions SET category_id = NULL, gst_amount = 0, net_amount = amount WHERE category_id IS NOT NULL")
     conn.execute("DELETE FROM categories")
@@ -105,36 +118,30 @@ def seed_categories():
     print(f"[category_master] Seeded {len(DEFAULT_CATEGORIES)} categories.")
 
 
-def sync_new_categories():
-    """Inserts any DEFAULT_CATEGORIES rows missing from DB. Safe to call on startup."""
-    conn = get_db()
-    existing_codes = {r["code"] for r in conn.execute("SELECT code FROM categories").fetchall()}
-    missing = [row for row in DEFAULT_CATEGORIES if row[0] not in existing_codes]
-    if missing:
-        conn.executemany(
-            """INSERT INTO categories (code, name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order)
-               VALUES (?,?,?,?,?,?,?)""",
-            missing,
-        )
-        conn.commit()
-        print(f"[category_master] Added {len(missing)} new category(ies).")
-
 def sync_categories_safe():
     """
     Safe startup sync — NEVER wipes transactions or category_id assignments.
-    
-    What it does:
-    1. Inserts any DEFAULT_CATEGORIES codes missing from DB (new categories added in code)
+
+    1. Inserts any DEFAULT_CATEGORIES codes missing from DB (new categories)
     2. Updates name/pnl_group/gst_applicable/gst_rate/bas_label for existing codes
-       so code changes (e.g. renaming a category) propagate without destroying data
-    3. Does NOT delete any categories or NULL out any transaction category_ids
-    
-    Use this instead of seed_categories() in production.
-    seed_categories() is only for first-time DB setup or intentional full reset.
+    3. Remaps legacy codes (old names) to new codes so existing transaction
+       category_id assignments survive renaming
+    4. Does NOT delete categories that have transactions pointing at them
     """
     conn = get_db()
     existing = {r["code"]: dict(r) for r in conn.execute("SELECT * FROM categories").fetchall()}
-    
+
+    # Legacy code → new code mapping for renamed categories
+    LEGACY_REMAP = {
+        "BANK_TRANSFER_IN":  "BANK_TRANSFER_CR",
+        "BANK_TRANSFER_OUT": "BANK_TRANSFER_DR",
+        "DRAWINGS_IN":       "DRAWINGS_CR",
+        "DRAWINGS_OUT":      "DRAWINGS_DR",
+        "DRAWINGS_PAID":     "DRAWINGS_DR",
+        "DRAWINGS_RECD":     "DRAWINGS_CR",
+        "ACCOUNTING_EXP":    "ACCOUNTING_FEES",
+    }
+
     added = 0
     updated = 0
     for row in DEFAULT_CATEGORIES:
@@ -147,17 +154,48 @@ def sync_categories_safe():
             )
             added += 1
         else:
-            # Update definition fields — preserves is_active and id so FK links stay intact
             conn.execute(
                 """UPDATE categories SET name=?, pnl_group=?, gst_applicable=?, gst_rate=?, bas_label=?, sort_order=?
                    WHERE code=?""",
                 (name, pnl_group, gst_applicable, gst_rate, bas_label, sort_order, code),
             )
             updated += 1
-    
+
     conn.commit()
+
+    # Remap legacy codes: point old category rows to the new code's id
+    # so existing transaction.category_id still resolves correctly
+    for old_code, new_code in LEGACY_REMAP.items():
+        if old_code not in existing:
+            continue  # already gone
+        old_id = existing[old_code]["id"]
+        new_row = conn.execute("SELECT id FROM categories WHERE code = ?", (new_code,)).fetchone()
+        if not new_row:
+            continue
+        new_id = new_row["id"]
+        if old_id == new_id:
+            continue
+        # Re-point transactions from old id → new id
+        n = conn.execute(
+            "UPDATE transactions SET category_id = ? WHERE category_id = ?", (new_id, old_id)
+        ).rowcount
+        if n:
+            print(f"[category_master] Remapped {n} txn(s) from {old_code}(id={old_id}) → {new_code}(id={new_id})")
+        # Re-point vendor_memory from old id → new id
+        conn.execute(
+            "UPDATE vendor_memory SET category_id = ? WHERE category_id = ?", (new_id, old_id)
+        )
+        # Delete old stub if no transactions or vendor_memory still reference it
+        still_txn = conn.execute("SELECT COUNT(*) FROM transactions WHERE category_id = ?", (old_id,)).fetchone()[0]
+        still_vm  = conn.execute("SELECT COUNT(*) FROM vendor_memory WHERE category_id = ?", (old_id,)).fetchone()[0]
+        if still_txn == 0 and still_vm == 0:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("DELETE FROM categories WHERE id = ?", (old_id,))
+            conn.execute("PRAGMA foreign_keys = ON")
+    conn.commit()
+
     if added or updated:
-        print(f"[category_master] Sync: {added} added, {updated} updated. Zero transactions affected.")
+        print(f"[category_master] Sync: {added} added, {updated} updated. Transactions untouched.")
 
 
 def list_categories(active_only: bool = True):
@@ -165,7 +203,7 @@ def list_categories(active_only: bool = True):
     q = "SELECT * FROM categories"
     if active_only:
         q += " WHERE is_active = 1"
-    q += " ORDER BY name COLLATE NOCASE"
+    q += " ORDER BY sort_order, name COLLATE NOCASE"
     return [dict(r) for r in conn.execute(q).fetchall()]
 
 
